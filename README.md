@@ -57,3 +57,13 @@ Las decisiones todavía no confirmadas y sus valores provisionales están en [do
 ## Estado de entrega
 
 Consultar [docs/VALIDACION.md](docs/VALIDACION.md) para las comprobaciones realizadas y las pendientes de la conexión real.
+
+Auditoría y optimización posteriores: [auditoría integral](docs/AUDITORIA-INTEGRAL-2026-10-06.md). La web publicada es https://gimnasiount.vercel.app. Las mejoras de Google requieren copiar Code.js/Domain.js a Apps Script y publicar una nueva versión, sin reinicializar cuentas.
+
+Para repetir el mes ficticio sin tocar Google:
+
+```powershell
+npm run simulate:month
+```
+
+Produce el [resumen mensual](docs/simulacion/RESULTADO-MENSUAL.md) y un JSON de datos ficticios. No importar ese JSON a producción. Para revisar sus pantallas localmente, ejecutar node tests/ui-server.mjs y abrir http://localhost:3181; el servidor QA no permite escrituras.

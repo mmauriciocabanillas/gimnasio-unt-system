@@ -4,7 +4,7 @@ export class HttpError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 export function configured(env = process.env) {
-  return Boolean(env.APPS_SCRIPT_URL && env.APPS_SCRIPT_SECRET?.length >= 32 && env.SESSION_SECRET?.length >= 32);
+  return Boolean(/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(env.APPS_SCRIPT_URL || '') && env.APPS_SCRIPT_SECRET?.length >= 32 && env.SESSION_SECRET?.length >= 32);
 }
 export function signedEnvelope(action, data, secret) {
   const payload = JSON.stringify({ action, data });

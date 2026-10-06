@@ -1,13 +1,18 @@
 import './style.css';
 import './template.css';
 import './access.css';
+import './interaction.css';
+import { paginate } from './pagination.js';
 
 const root = document.querySelector('#app');
 const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const hours = [8, 9, 10, 11, 15, 16, 17, 18];
+const hours = [8, 9, 10, 11, 15, 16, 17, 18, 19];
 let status = null, publicData = null, panelData = null, user = null, loadError = '';
 let scannedCode = '', scanControls = null, scannerGeneration = 0, shift = 'TODO', tab = 'resumen';
 let registrationDraft = null, pending = false;
+let panelUpdatedAt = '', panelRequest = 0;
+const inflight = new Map();
+const historyPages = { attendance: 0, absences: 0 };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const periodLabel = value => value ? new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}-01T12:00:00Z`)) : 'Inscripción mensual';
 const shiftLabel = value => ({ TODO: 'Todo el día', MANANA: 'Turno mañana', TARDE: 'Turno tarde' })[value];
@@ -28,26 +33,37 @@ const iconPaths = {
 const icon = name => `<svg class="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name] || iconPaths.resumen}</svg>`;
 
 async function api(path, body) {
-  const response = await fetch(`/api/${path}`, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-  const data = await response.json();
-  if (!response.ok) { const error = new Error(data.error || 'No se pudo completar la operación.'); error.status = response.status; throw error; }
-  return data;
+  const get = body === undefined;
+  if (get && inflight.has(path)) return inflight.get(path);
+  const request = (async () => {
+    let response, data;
+    try {
+      response = await fetch(`/api/${path}`, { method: get ? 'GET' : 'POST', headers: get ? {} : { 'Content-Type': 'application/json' }, body: get ? undefined : JSON.stringify(body), credentials: 'same-origin', signal: AbortSignal.timeout(65000) });
+      data = await response.json();
+    } catch { throw new Error(get ? 'No se pudo consultar el sistema. Intenta actualizar.' : 'No se pudo confirmar la respuesta. Verifica si se guardó antes de repetir la operación.'); }
+    if (!response.ok) { const error = new Error(data.error || 'No se pudo completar la operación.'); error.status = response.status; throw error; }
+    return data;
+  })();
+  if (get) inflight.set(path, request);
+  try { return await request; } finally { if (get) inflight.delete(path); }
 }
 function feedback(message, kind = 'error') {
   if (root.dataset.screen === 'welcome') { loadError = message; return; }
-  let box = document.querySelector('#feedback');
+  const dialog = document.querySelector('dialog[open]');
+  let box = dialog ? dialog.querySelector('.dialog-feedback') : document.querySelector('#feedback');
+  if (dialog && !box) { box = document.createElement('div'); box.className = 'dialog-feedback'; dialog.prepend(box); }
   if (!box) { box = document.createElement('div'); box.id = 'feedback'; document.querySelector('main').prepend(box); }
-  box.className = `notice ${kind}`; box.setAttribute('role', kind === 'error' ? 'alert' : 'status'); box.textContent = message;
+  box.className = `${dialog ? 'dialog-feedback ' : ''}notice ${kind}`; box.setAttribute('role', kind === 'error' ? 'alert' : 'status'); box.textContent = message;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function stopCamera() { scannerGeneration++; if (scanControls) scanControls.stop(); scanControls = null; }
-function navigate(path) { stopCamera(); scannedCode = ''; registrationDraft = null; history.pushState({}, '', path); render(); window.scrollTo(0, 0); }
+function navigate(path) { stopCamera(); scannedCode = ''; registrationDraft = null; history.pushState({}, '', path); render(); window.scrollTo(0, 0); if (location.pathname === '/registro' && !publicData) loadRegistration(); }
 function shell(content, audience = 'staff') {
   const student = audience === 'student';
   document.documentElement.dataset.layout = student ? 'public' : 'staff';
   root.dataset.audience = student ? 'student' : 'staff';
   root.dataset.screen = student ? 'student' : user ? 'panel' : 'login';
-  const brand = `<img src="/logo.png" alt="Logo del Gimnasio UNT"><span>GIMNASIO <b>UNT</b><small>Universidad Nacional de Trujillo</small></span>`;
+  const brand = `<img src="/logo.webp" alt="Logo del Gimnasio UNT"><span>GIMNASIO <b>UNT</b><small>Universidad Nacional de Trujillo</small></span>`;
   const notice = status && !status.connected ? `<div class="notice setup" role="status">${student ? 'Este servicio todavía no está disponible. Intenta más tarde.' : 'Sistema pendiente de activación. Completa la conexión para habilitar el acceso.'}</div>` : '';
   const themeButton = student ? '' : `<button class="theme icon-button" data-action="theme" aria-label="Cambiar modo claro u oscuro">${document.documentElement.dataset.theme === 'dark' ? '☀' : '☾'}</button>`;
   root.innerHTML = `<header class="topbar"><div class="brand">${brand}</div><div class="header-actions">${student ? '<span class="header-label">ESTUDIANTES</span>' : `<span class="header-label">${user ? escape(user) : 'ACCESO DEL PERSONAL'}</span>`}${themeButton}</div></header><main>${notice}${content}</main><footer><span>Gimnasio UNT</span><span>Universidad Nacional de Trujillo</span></footer>`;
@@ -65,7 +81,7 @@ function registration() {
   shell(`${pageTitle('INSCRIPCIÓN MENSUAL', 'Un mes. Tus horarios.', 'Elige entre uno y tres días por semana. Cada día tendrás una sesión de una hora.')}<div id="feedback" aria-live="polite"></div><div class="registration-layout"><form id="registration-form" class="surface">${scannerMarkup()}<section class="form-section"><div class="section-label"><span class="step-dot">2</span><h2>Tus datos</h2></div><div class="form-grid">${field('Nombres', 'names', 'autocomplete="given-name" maxlength="120"')}${field('Apellidos', 'surnames', 'autocomplete="family-name" maxlength="120"')}${field('Facultad', 'faculty', 'maxlength="120"')}${field('Carrera / escuela', 'career', 'maxlength="120"')}${field('Ciclo de estudios', 'cycle', 'type="number" min="1" max="20" inputmode="numeric"')}</div></section><section class="form-section"><div class="section-label"><span class="step-dot">3</span><h2>Elige tus horarios</h2></div><p class="muted">Los horarios se repiten cada semana y quedan fijos durante el mes.</p>${slotPicker()}<p class="micro" id="selection-summary">Selecciona 1, 2 o 3 días.</p></section><button class="button primary full" ${!publicData?.enabled ? 'disabled' : ''}>Revisar inscripción →</button>${publicData && !publicData.enabled ? '<p class="micro">El personal todavía no ha abierto las inscripciones de este mes.</p>' : ''}</form><aside class="registration-aside"><span class="eyebrow">TU COMPROMISO DEL MES</span><h2>Reserva con<br>responsabilidad.</h2><ul><li>Una sesión por día.</li><li>Máximo tres días por semana.</li><li>Con tres faltas se bloquea el acceso hasta terminar el mes.</li><li>Los días o turnos cerrados no generan faltas.</li></ul><div class="period-chip">${escape(periodLabel(publicData?.period))}</div></aside></div>`, 'student');
 }
 function attendance() {
-  shell(`<div class="attendance-checkin"><div class="checkin-heading"><span class="eyebrow">ASISTENCIA DEL DÍA</span><div class="checkin-symbol">${icon('asistencia')}</div><h1>Marca tu llegada.</h1><p>Ya estás inscrito. Solo confirma tu asistencia dentro de tu sesión reservada.</p></div><div id="feedback" aria-live="polite"></div><section class="checkin-reader" aria-label="Marcar asistencia con carnet"><div id="camera-area" class="camera-area" hidden><video id="camera" autoplay muted playsinline></video><div class="scan-guide"></div></div><button class="button primary full" type="button" data-action="scan">Escanear carnet UNT</button><button class="button quiet full" type="button" data-action="stop-scan" hidden>Cerrar cámara</button><output id="scan-result" aria-live="polite">Carnet pendiente de lectura</output><button class="button secondary full" type="button" data-action="attend-scan" ${!publicData ? 'disabled' : ''}>Confirmar asistencia</button><p class="micro">Escanea primero, confirma después.</p></section><details class="checkin-manual"><summary>¿Sin carnet? Marcar con mis datos</summary><p>Usa el código y nombre completo de tu inscripción del mes.</p><form id="manual-attendance">${field('Código de estudiante', 'code', 'maxlength="40" autocomplete="off"')}${field('Nombres y apellidos completos', 'fullName', 'maxlength="241" autocomplete="name"')}<button class="button primary full" ${!publicData ? 'disabled' : ''}>Confirmar asistencia manual</button></form></details><p class="micro checkin-note">Solo asistencia. No necesitas volver a inscribirte ni elegir horarios. Un segundo marcado no duplica tu asistencia.</p></div>`, 'student');
+  shell(`<div class="attendance-checkin"><div class="checkin-heading"><span class="eyebrow">ASISTENCIA DEL DÍA</span><div class="checkin-symbol">${icon('asistencia')}</div><h1>Marca tu llegada.</h1><p>Ya estás inscrito. Solo confirma tu asistencia dentro de tu sesión reservada.</p></div><div id="feedback" aria-live="polite"></div><section class="checkin-reader" aria-label="Marcar asistencia con carnet"><div id="camera-area" class="camera-area" hidden><video id="camera" autoplay muted playsinline></video><div class="scan-guide"></div></div><button class="button primary full" type="button" data-action="scan">Escanear carnet UNT</button><button class="button quiet full" type="button" data-action="stop-scan" hidden>Cerrar cámara</button><output id="scan-result" aria-live="polite">Carnet pendiente de lectura</output><button class="button secondary full" type="button" data-action="attend-scan" ${!status?.connected ? 'disabled' : ''}>Confirmar asistencia</button><p class="micro">Escanea primero, confirma después.</p></section><details class="checkin-manual"><summary>¿Sin carnet? Marcar con mis datos</summary><p>Usa el código y nombre completo de tu inscripción del mes.</p><form id="manual-attendance">${field('Código de estudiante', 'code', 'maxlength="40" autocomplete="off"')}${field('Nombres y apellidos completos', 'fullName', 'maxlength="241" autocomplete="name"')}<button class="button primary full" ${!status?.connected ? 'disabled' : ''}>Confirmar asistencia manual</button></form></details><p class="micro checkin-note">Solo asistencia. No necesitas volver a inscribirte ni elegir horarios. Un segundo marcado no duplica tu asistencia.</p></div>`, 'student');
   root.dataset.screen = 'attendance';
 }
 function accessScreen(content, screen) {
@@ -75,7 +91,7 @@ function accessScreen(content, screen) {
   root.innerHTML = `<main class="access-main">${content}</main>`;
 }
 function welcome() {
-  accessScreen(`<section class="access-screen login-intro"><span class="eyebrow">GIMNASIO UNT</span><img src="/logo.png" alt="Gimnasio UNT"><h1>Un espacio.<br><em>Todo tu gimnasio.</em></h1><p>Organiza cada mes.<br>Acompaña cada entrenamiento.</p><button class="button welcome-enter" type="button" data-action="open-login">INGRESAR</button><div class="welcome-dots" aria-hidden="true"><span></span><span></span></div><span class="welcome-bottom">UNIVERSIDAD NACIONAL DE TRUJILLO</span></section>`, 'welcome');
+  accessScreen(`<section class="access-screen login-intro"><span class="eyebrow">GIMNASIO UNT</span><img src="/logo.webp" alt="Gimnasio UNT"><h1>Un espacio.<br><em>Todo tu gimnasio.</em></h1><p>Organiza cada mes.<br>Acompaña cada entrenamiento.</p><button class="button welcome-enter" type="button" data-action="open-login">INGRESAR</button><div class="welcome-dots" aria-hidden="true"><span></span><span></span></div><span class="welcome-bottom">UNIVERSIDAD NACIONAL DE TRUJILLO</span></section>`, 'welcome');
 }
 function login() {
   if (location.hash !== '#ingresar') return welcome();
@@ -98,13 +114,18 @@ function panelSummary() {
 }
 function filteredStudents() { return panelData.students.filter(s => shift === 'TODO' || s.slots.some(r => (Number(r.start.slice(0, 2)) < 12 ? 'MANANA' : 'TARDE') === shift)); }
 function studentsView() {
-  return `<section class="surface"><div class="section-top"><h2>Inscritos del mes</h2><label class="search-label">Buscar alumno<input type="search" id="student-search" placeholder="Código o nombre"></label></div><div class="table-wrap"><table><thead><tr><th>Alumno</th><th>Facultad / carrera</th><th>Horario semanal</th><th>Faltas</th><th>Estado</th><th></th></tr></thead><tbody id="student-rows">${filteredStudents().map(s => `<tr data-search="${escape(`${s.code} ${s.fullName}`.toLowerCase())}"><td><b>${escape(s.fullName)}</b><small>${escape(s.code)} · Ciclo ${s.cycle}</small></td><td>${escape(s.faculty)}<small>${escape(s.career)}</small></td><td>${s.slots.map(r => `${days[r.day]} ${r.start}`).join('<br>')}</td><td>${s.absences}/3</td><td><span class="badge ${s.status === 'BLOQUEADO' ? 'blocked' : ''}">${escape(s.status)}</span></td><td><button class="button quiet" data-action="schedule" data-code="${escape(s.code)}">Cambiar horario</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No hay inscritos en este turno.</td></tr>'}</tbody></table></div></section>`;
+  return `<section class="surface"><div class="section-top"><h2>Inscritos del mes</h2><label class="search-label">Buscar alumno<input type="search" id="student-search" placeholder="Código o nombre"></label></div><div class="table-wrap"><table><thead><tr><th>Alumno</th><th>Facultad / carrera</th><th>Horario vigente</th><th>Faltas</th><th>Estado</th><th></th></tr></thead><tbody id="student-rows">${filteredStudents().map(s => `<tr data-search="${escape(`${s.code} ${s.fullName}`.toLowerCase())}"><td><b>${escape(s.fullName)}</b><small>${escape(s.code)} · Ciclo ${s.cycle}</small></td><td>${escape(s.faculty)}<small>${escape(s.career)}</small></td><td>${s.slots.map(r => `${days[r.day]} ${r.start}`).join('<br>')}${s.futureSlots?.length ? `<small>Pendiente desde ${escape(s.futureSlots[0].from.slice(0, 10))}: ${s.futureSlots.map(r => `${days[r.day]} ${r.start}`).join(', ')}</small>` : ''}</td><td>${s.absences}/3</td><td><span class="badge ${s.status === 'BLOQUEADO' ? 'blocked' : ''}">${escape(s.status)}</span></td><td><button class="button quiet" data-action="schedule" data-code="${escape(s.code)}">Cambiar horario</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No hay inscritos en este turno.</td></tr>'}<tr id="search-empty" hidden><td colspan="6" class="empty">Sin coincidencias.</td></tr></tbody></table></div></section>`;
 }
 function attendanceView() {
   const records = panelData.attendance.filter(a => shift === 'TODO' || a.shift === shift);
   const absences = panelData.absences.filter(a => a.status === 'CONTABILIZADA' && (shift === 'TODO' || a.shift === shift));
   const lookup = code => panelData.students.find(s => s.code === code)?.fullName || code;
-  return `<div class="dashboard-columns"><section class="surface"><h2>Asistencias registradas</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Alumno</th><th>Sesión</th><th>Método</th></tr></thead><tbody>${records.slice().reverse().map(a => `<tr><td>${escape(a.date)}</td><td>${escape(lookup(a.code))}<small>${escape(a.code)}</small></td><td>${a.start}–${a.end}</td><td>${escape(a.method)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Sin asistencias.</td></tr>'}</tbody></table></div></section><section class="surface"><h2>Faltas contabilizadas</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Alumno</th><th>Sesión</th></tr></thead><tbody>${absences.slice().reverse().map(a => `<tr><td>${a.date}</td><td>${escape(lookup(a.code))}</td><td>${a.start}–${a.end}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Sin faltas.</td></tr>'}</tbody></table></div></section></div>`;
+  const recordsPage = paginate(records.slice().reverse(), historyPages.attendance);
+  const absencesPage = paginate(absences.slice().reverse(), historyPages.absences);
+  return `<div class="dashboard-columns"><section class="surface"><h2>Asistencias registradas</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Alumno</th><th>Sesión</th><th>Método</th></tr></thead><tbody>${recordsPage.rows.map(a => `<tr><td>${escape(a.date)}</td><td>${escape(lookup(a.code))}<small>${escape(a.code)}</small></td><td>${a.start}–${a.end}</td><td>${escape(a.method)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Sin asistencias.</td></tr>'}</tbody></table></div>${historyPager(recordsPage, 'attendance')}</section><section class="surface"><h2>Faltas contabilizadas</h2><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Alumno</th><th>Sesión</th></tr></thead><tbody>${absencesPage.rows.map(a => `<tr><td>${a.date}</td><td>${escape(lookup(a.code))}</td><td>${a.start}–${a.end}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Sin faltas.</td></tr>'}</tbody></table></div>${historyPager(absencesPage, 'absences')}</section></div>`;
+}
+function historyPager(page, kind) {
+  return `<div class="history-pager"><span>${page.total} registros · Página ${page.page + 1}/${page.pages}</span><button class="button quiet" data-action="history-page" data-kind="${kind}" data-page="${page.page - 1}" ${page.page === 0 ? 'disabled' : ''}>Anterior</button><button class="button quiet" data-action="history-page" data-kind="${kind}" data-page="${page.page + 1}" ${page.page + 1 === page.pages ? 'disabled' : ''}>Siguiente</button></div>`;
 }
 function closuresView() {
   return `<div class="dashboard-columns"><section class="surface"><h2>Gestionar un cierre</h2><p class="muted">Cerrar o reabrir recalcula las faltas de las sesiones afectadas.</p><form id="closure-form">${field('Fecha', 'date', `type="date" value="${panelData.dashboard.today}" min="${panelData.dashboard.period}-01" max="${panelData.dashboard.period}-31"`)}<label>Turno<select name="shift"><option value="MANANA">Turno mañana</option><option value="TARDE">Turno tarde</option><option value="TODO">Todo el día</option></select></label><label>Estado<select name="closed"><option value="true">Cerrado</option><option value="false">Reabrir / corregir cierre</option></select></label>${field('Motivo', 'reason', 'maxlength="300" placeholder="Feriado, mantenimiento, suspensión…"')}<button class="button primary full">Confirmar estado</button></form><div class="quick-actions"><button class="button secondary" data-action="close-today" data-shift="MANANA">Hoy no abrió · mañana</button><button class="button secondary" data-action="close-today" data-shift="TARDE">Hoy no abrió · tarde</button></div><p class="micro">Reabrir un turno no revierte un cierre de «Todo el día»: corrige también ese registro si corresponde.</p></section><section class="surface"><h2>Cierres del mes</h2><div class="closure-list">${panelData.closures.map(c => `<article><div><b>${c.date} · ${shiftLabel(c.shift)}</b><span class="badge ${c.closed ? 'blocked' : ''}">${c.closed ? 'CERRADO' : 'ABIERTO'}</span></div><p>${escape(c.reason)}</p><small>${escape(c.actor)} · ${escape(c.timestamp)}</small></article>`).join('') || '<p class="empty">Sin cierres declarados.</p>'}</div></section></div>`;
@@ -122,7 +143,7 @@ function panel() {
   const views = { resumen: panelSummary, inscritos: studentsView, asistencia: attendanceView, cierres: closuresView, reportes: reportsView, qr: qrView, configuracion: settingsView };
   views.resumen = () => panelSummary() + trendsView();
   if (!views[tab]) tab = 'resumen';
-  shell(`<div class="staff-layout"><aside class="staff-sidebar"><div class="sidebar-brand"><img src="/logo.png" alt=""><div>GIMNASIO UNT<small>Panel del personal</small></div></div><nav class="panel-tabs" aria-label="Secciones del panel">${Object.entries({ resumen: 'Resumen', inscritos: 'Inscritos', asistencia: 'Asistencia y faltas', cierres: 'Cierres', reportes: 'Reportes', qr: 'Códigos QR', configuracion: 'Configuración' }).map(([key, label]) => `<button class="${tab === key ? 'selected' : ''}" data-action="tab" data-tab="${key}">${icon(key)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><span>${escape(user)}</span><button class="sidebar-logout" data-action="logout">${icon('logout')} Cerrar sesión</button></div></aside><div class="staff-content"><div class="panel-heading"><div><span class="eyebrow">${escape(periodLabel(panelData.dashboard.period))}</span><h1>${tab === 'qr' ? 'Accesos para estudiantes' : 'Tu gimnasio, al día.'}</h1><p>${shiftLabel(shift)}</p></div><div class="panel-controls"><label class="sr-only" for="shift-filter">Turno del panel</label><select id="shift-filter"><option value="TODO" ${shift === 'TODO' ? 'selected' : ''}>Todo el día</option><option value="MANANA" ${shift === 'MANANA' ? 'selected' : ''}>Turno mañana</option><option value="TARDE" ${shift === 'TARDE' ? 'selected' : ''}>Turno tarde</option></select><button class="button quiet" data-action="refresh">Actualizar ↻</button></div></div><div id="feedback" aria-live="polite"></div>${views[tab]()}</div></div>`, 'panel');
+  shell(`<div class="staff-layout"><aside class="staff-sidebar"><div class="sidebar-brand"><img src="/logo.webp" alt=""><div>GIMNASIO UNT<small>Panel del personal</small></div></div><nav class="panel-tabs" aria-label="Secciones del panel">${Object.entries({ resumen: 'Resumen', inscritos: 'Inscritos', asistencia: 'Asistencia y faltas', cierres: 'Cierres', reportes: 'Reportes', qr: 'Códigos QR', configuracion: 'Configuración' }).map(([key, label]) => `<button class="${tab === key ? 'selected' : ''}" data-action="tab" data-tab="${key}">${icon(key)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><span>${escape(user)}</span><button class="sidebar-logout" data-action="logout">${icon('logout')} Cerrar sesión</button></div></aside><div class="staff-content"><div class="panel-heading"><div><span class="eyebrow">${escape(periodLabel(panelData.dashboard.period))}</span><h1>${tab === 'qr' ? 'Accesos para estudiantes' : 'Tu gimnasio, al día.'}</h1><p>${shiftLabel(shift)}</p><small class="updated-label">Última consulta: ${panelUpdatedAt ? new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Lima' }).format(new Date(panelUpdatedAt)) : '—'}. Pulsa Actualizar para nuevos registros.</small></div><div class="panel-controls"><label class="sr-only" for="shift-filter">Turno del panel</label><select id="shift-filter"><option value="TODO" ${shift === 'TODO' ? 'selected' : ''}>Todo el día</option><option value="MANANA" ${shift === 'MANANA' ? 'selected' : ''}>Turno mañana</option><option value="TARDE" ${shift === 'TARDE' ? 'selected' : ''}>Turno tarde</option></select><button class="button quiet" data-action="refresh">Actualizar ↻</button></div></div><div id="feedback" aria-live="polite"></div>${views[tab]()}</div></div>`, 'panel');
   if (tab === 'qr') drawQrs().catch(e => feedback(e.message));
 }
 function qrView() {
@@ -185,7 +206,44 @@ function showDialog(content) {
 function confirmation(draft) {
   showDialog(`<div class="dialog-header"><span class="eyebrow">REVISA ANTES DE CONFIRMAR</span><button class="icon-button" type="button" data-action="dialog-close" aria-label="Cerrar">×</button></div><h2>Tu inscripción del mes</h2><dl><dt>Alumno</dt><dd>${escape(draft.names)} ${escape(draft.surnames)}</dd><dt>Código</dt><dd>${escape(draft.code)}</dd><dt>Estudios</dt><dd>${escape(draft.faculty)} · ${escape(draft.career)} · Ciclo ${draft.cycle}</dd><dt>Horario</dt><dd>${draft.slots.map(s => `${days[s.day]} · ${s.start}–${String(Number(s.start.slice(0, 2)) + 1).padStart(2, '0')}:00`).join('<br>')}</dd></dl><p class="micro">Después de confirmar, los cambios de horario los gestiona el personal.</p><div class="dialog-actions"><button class="button secondary" data-action="dialog-close">Corregir</button><button class="button primary" data-action="confirm-registration">Confirmar inscripción</button></div>`);
 }
-async function refreshPanel() { panelData = await api(`panel?shift=${shift}`); panel(); }
+function acceptPanel(data) {
+  panelData = data; panelUpdatedAt = data.updatedAt || new Date().toISOString();
+  if (data.dashboards?.[shift]) panelData.dashboard = data.dashboards[shift];
+}
+async function refreshPanel() {
+  const sequence = ++panelRequest;
+  const data = await api('panel?shift=TODO');
+  if (sequence !== panelRequest || !user) return;
+  acceptPanel(data); panel();
+}
+async function mutatePanel(action, input, message) {
+  const result = await api(action, { ...input, includePanel: true, panelShift: shift });
+  document.querySelector('dialog[open]')?.close();
+  if (result.panel) { acceptPanel(result.panel); panel(); }
+  else {
+    try { await refreshPanel(); }
+    catch { feedback(`${message || result.message || 'Cambio guardado'}. No se pudo actualizar la vista; pulsa Actualizar.`, 'success'); return; }
+  }
+  feedback(message || result.message || 'Cambio guardado.', 'success');
+}
+async function loadRegistration() {
+  try {
+    publicData = await api('public');
+    if (location.pathname === '/registro' && !pending) {
+      const form = document.querySelector('#registration-form');
+      if (!form) registration();
+      else {
+        const chosen = slotsFrom(form), grid = form.querySelector('.schedule-grid');
+        grid.outerHTML = slotPicker();
+        for (const slot of chosen) { const select = form.elements[`day-${slot.day}`]; if (select && [...select.options].some(o => o.value === slot.start && !o.disabled)) select.value = slot.start; }
+        form.querySelector('button:not([type])').disabled = !publicData.enabled;
+        document.querySelector('.period-chip').textContent = periodLabel(publicData.period);
+      }
+      if (!publicData.enabled) feedback('Las inscripciones del mes están cerradas.', 'info');
+    }
+  }
+  catch (error) { if (location.pathname === '/registro') feedback(error.message); }
+}
 async function execute(button, fn) {
   if (pending) return;
   pending = true; const original = button?.innerHTML;
@@ -204,8 +262,9 @@ root.addEventListener('click', async event => {
   else if (action === 'stop-scan') { stopCamera(); document.querySelector('#camera-area').hidden = true; button.hidden = true; }
   else if (action === 'dialog-close') button.closest('dialog').close();
   else if (action === 'tab') { tab = button.dataset.tab; panel(); }
+  else if (action === 'history-page') { historyPages[button.dataset.kind] = Number(button.dataset.page); panel(); }
   else if (action === 'refresh') await execute(button, refreshPanel);
-  else if (action === 'logout') await execute(button, async () => { await api('logout', {}); user = null; panelData = null; tab = 'resumen'; navigate('/'); });
+  else if (action === 'logout') await execute(button, async () => { await api('logout', {}); ++panelRequest; user = null; panelData = null; tab = 'resumen'; navigate('/'); });
   else if (action === 'download-qr') {
     const canvas = document.querySelector(`#qr-${button.dataset.route}`);
     if (canvas?.dataset.ready !== 'true' || !user) return;
@@ -215,7 +274,8 @@ root.addEventListener('click', async event => {
   else if (action === 'confirm-registration') await execute(button, async () => {
     const result = await api('register', registrationDraft);
     button.closest('dialog').close(); registrationDraft = null; scannedCode = '';
-    publicData = await api('public'); registration(); feedback(`${result.fullName}: ${result.message}`, 'success');
+    registration(); feedback(`${result.fullName}: ${result.message}`, 'success');
+    api('public').then(data => { publicData = data; }).catch(() => {});
   });
   else if (action === 'close-today') {
     const form = document.querySelector('#closure-form'); form.elements.date.value = panelData.dashboard.today; form.elements.shift.value = button.dataset.shift; form.elements.closed.value = 'true'; form.elements.reason.value = 'Hoy no abrió este turno'; form.requestSubmit();
@@ -226,10 +286,10 @@ root.addEventListener('click', async event => {
   }
 });
 root.addEventListener('input', event => {
-  if (event.target.id === 'student-search') { const query = event.target.value.toLowerCase(); document.querySelectorAll('#student-rows tr[data-search]').forEach(row => { row.hidden = !row.dataset.search.includes(query); }); }
+  if (event.target.id === 'student-search') { const query = event.target.value.toLowerCase(); let matches = 0; document.querySelectorAll('#student-rows tr[data-search]').forEach(row => { row.hidden = !row.dataset.search.includes(query); if (!row.hidden) matches++; }); const empty = document.querySelector('#search-empty'); if (empty) empty.hidden = !query || matches > 0; }
 });
 root.addEventListener('change', async event => {
-  if (event.target.id === 'shift-filter') { shift = event.target.value; try { await refreshPanel(); } catch (error) { feedback(error.message); } }
+  if (event.target.id === 'shift-filter') { shift = event.target.value; if (panelData?.dashboards?.[shift]) { panelData.dashboard = panelData.dashboards[shift]; panel(); } else try { await refreshPanel(); } catch (error) { feedback(error.message); } }
   if (event.target.closest('#registration-form') && event.target.name?.startsWith('day-')) {
     const count = slotsFrom(event.target.form).length;
     if (count > 3) { event.target.value = ''; feedback('Puedes elegir como máximo tres días.'); }
@@ -249,9 +309,9 @@ root.addEventListener('submit', async event => {
     else if (form.id === 'login-form') { const result = await api('login', { user: input.user, password: input.password }); user = result.user; shift = input.shift; await refreshPanel(); }
     else if (form.id === 'closure-form') {
       if (!window.confirm(`${input.closed === 'true' ? 'Cerrar' : 'Reabrir'} ${shiftLabel(input.shift)} el ${input.date}. Se recalcularán las faltas. ¿Confirmar?`)) return;
-      await api('closure', { ...input, closed: input.closed === 'true' }); await refreshPanel(); tab = 'cierres'; panel(); feedback('Estado actualizado y faltas recalculadas.', 'success');
-    } else if (form.id === 'schedule-form') { const slots = slotsFrom(form, 'edit-'); if (!slots.length || slots.length > 3) throw new Error('Selecciona entre 1 y 3 días.'); const result = await api('schedule', { code: input.code, effectiveDate: input.effectiveDate, slots }); form.closest('dialog').close(); await refreshPanel(); feedback(result.message, 'success'); }
-    else if (form.id === 'config-form') { await api('configure', { days: new FormData(form).getAll('day').map(Number), codePattern: input.codePattern, enabled: Boolean(input.enabled) }); publicData = await api('public'); await refreshPanel(); feedback('Configuración guardada.', 'success'); }
+      tab = 'cierres'; await mutatePanel('closure', { ...input, closed: input.closed === 'true' }, 'Estado actualizado y faltas recalculadas.');
+    } else if (form.id === 'schedule-form') { const slots = slotsFrom(form, 'edit-'); if (!slots.length || slots.length > 3) throw new Error('Selecciona entre 1 y 3 días.'); await mutatePanel('schedule', { code: input.code, effectiveDate: input.effectiveDate, slots }); }
+    else if (form.id === 'config-form') { await mutatePanel('configure', { days: new FormData(form).getAll('day').map(Number), codePattern: input.codePattern, enabled: Boolean(input.enabled) }, 'Configuración guardada.'); publicData = null; }
     else if (form.id === 'password-form') { const result = await api('password', input); form.reset(); feedback(result.message, 'success'); }
     else if (form.id === 'export-form') {
       const archive = button.value === 'archive'; const result = await api('export', { shift: input.shift, archive });
@@ -269,14 +329,9 @@ window.addEventListener('popstate', () => { scannedCode = ''; registrationDraft 
 window.addEventListener('pagehide', stopCamera);
 try { document.documentElement.dataset.theme = localStorage.getItem('gym-theme') === 'dark' ? 'dark' : 'light'; } catch { document.documentElement.dataset.theme = 'light'; }
 render();
-try {
-  status = await api('status');
-  if (status.connected) {
-    try { publicData = await api('public'); } catch (error) { loadError = error.message; }
-    if (!['/registro', '/asistencia'].includes(location.pathname.replace(/\/$/, ''))) {
-      try { user = (await api('me')).user; if (user) panelData = await api(`panel?shift=${shift}`); } catch { user = null; }
-    }
-  }
-  render();
-  if (loadError) feedback(loadError);
-} catch (error) { status = { connected: false }; render(); feedback(error.message); }
+const studentRoute = ['/registro', '/asistencia'].includes(location.pathname.replace(/\/$/, ''));
+await Promise.all([
+  api('status').then(data => { status = data; if (location.pathname === '/asistencia') { root.querySelectorAll('[data-action="attend-scan"], #manual-attendance button').forEach(button => { button.disabled = !status.connected; }); } }).catch(error => { status = { connected: false }; feedback(error.message); }),
+  studentRoute ? (location.pathname === '/registro' ? loadRegistration() : Promise.resolve()) :
+    api('panel?shift=TODO').then(data => { if (pending) return; user = data.user; acceptPanel(data); render(); }).catch(error => { if (error.status !== 401 && error.status !== 503) feedback(error.message); })
+]);

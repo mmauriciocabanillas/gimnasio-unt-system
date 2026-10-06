@@ -1,5 +1,6 @@
 import { HttpError, bridge, configured } from './bridge.mjs';
 import { createSession, hashPassword, readSession, sessionCookie, verifyPassword } from './auth.mjs';
+import { createHmac } from 'node:crypto';
 
 async function requestBody(req) {
   function object(raw) {
@@ -41,23 +42,26 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
     const path = ['/api', '/api/index'].includes(parsed.pathname) && parsed.searchParams.has('route')
       ? `/api/${parsed.searchParams.get('route')}` : parsed.pathname.replace(/\/$/, '');
     const method = req.method;
-    if (path === '/api/status' && method === 'GET') return send(200, { connected: configured(env), publicUrl: env.PUBLIC_APP_URL || '' });
+    if (path === '/api/status' && method === 'GET') return send(200, { connected: configured(env), configured: configured(env), health: 'not_checked', publicUrl: env.PUBLIC_APP_URL || '' });
     if (!configured(env)) throw new HttpError('El sistema aún no está conectado a Google. El personal debe completar la configuración.', 503);
     if (method === 'POST') sameOrigin(req);
-    if (path === '/api/public' && method === 'GET') return send(200, await invoke('public.config'));
+    const ip = env.VERCEL ? String(req.headers['x-forwarded-for'] || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'local';
+    // Solo el servidor crea esta identidad; no guardar IP ni contraseñas en Google.
+    const rateKey = createHmac('sha256', env.SESSION_SECRET).update(ip).digest('hex');
+    if (path === '/api/public' && method === 'GET') return send(200, await invoke('public.config', { _rate: rateKey }));
     if (['/api/register', '/api/attend'].includes(path) && method === 'POST') {
       const input = await requestBody(req);
       // No reenviar campos de cuenta/versión recibidos desde el público.
       const data = path === '/api/register'
         ? { code: input.code, method: input.method, names: input.names, surnames: input.surnames, faculty: input.faculty, career: input.career, cycle: input.cycle, slots: input.slots }
         : { code: input.code, method: input.method, fullName: input.fullName };
-      return send(200, await invoke(path.endsWith('register') ? 'register' : 'attend', data));
+      return send(200, await invoke(path.endsWith('register') ? 'register' : 'attend', { ...data, _rate: rateKey }));
     }
     const secure = Boolean(env.VERCEL || req.headers['x-forwarded-proto'] === 'https');
     if (path === '/api/login' && method === 'POST') {
       const input = await requestBody(req);
       if (!['ProfesorGYM', 'Administrador'].includes(input.user) || typeof input.password !== 'string' || input.password.length > 128) throw new HttpError('Usuario o contraseña incorrectos.', 401);
-      const account = await invoke('account.get', { user: input.user });
+      const account = await invoke('account.get', { user: input.user, _rate: rateKey });
       if (!verifyPassword(input.password, account.hash)) throw new HttpError('Usuario o contraseña incorrectos.', 401);
       res.setHeader('Set-Cookie', sessionCookie(createSession(input.user, account.version, env.SESSION_SECRET), secure));
       return send(200, { user: input.user });
@@ -71,7 +75,15 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
       if (!['TODO', 'MANANA', 'TARDE'].includes(shift)) throw new HttpError('Turno inválido.');
       // gymActor_ verifica la version persistente dentro de esta misma llamada.
       // No duplicar account.get reduce redirecciones y conserva la revocacion.
-      return send(200, await invoke('panel', { ...actor, shift }));
+      return send(200, { ...await invoke('panel', { ...actor, shift }), user: session.user });
+    }
+    const actions = { '/api/closure': 'closure', '/api/schedule': 'schedule', '/api/configure': 'configure', '/api/export': 'export' };
+    if (actions[path] && method === 'POST') {
+      const input = await requestBody(req);
+      if (input.shift !== undefined && !['TODO', 'MANANA', 'TARDE'].includes(input.shift)) throw new HttpError('Turno inválido.');
+      if (input.panelShift !== undefined && !['TODO', 'MANANA', 'TARDE'].includes(input.panelShift)) throw new HttpError('Turno inválido.');
+      // Cada acción ya ejecuta gymActor_: misma revocación, una sola ida a Google.
+      return send(200, await invoke(actions[path], { ...input, ...actor }));
     }
     // Consultar versión persistente revoca sesiones al cambiar la contraseña.
     const account = await invoke('account.get', { user: session.user });
@@ -85,8 +97,6 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
       res.setHeader('Set-Cookie', sessionCookie(createSession(session.user, result.version, env.SESSION_SECRET), secure));
       return send(200, { message: 'Contraseña actualizada.' });
     }
-    const actions = { '/api/closure': 'closure', '/api/schedule': 'schedule', '/api/configure': 'configure', '/api/export': 'export' };
-    if (actions[path] && method === 'POST') return send(200, await invoke(actions[path], { ...await requestBody(req), ...actor }));
     throw new HttpError('Ruta no encontrada.', 404);
   } catch (error) { send(error.status || 500, { error: error.status ? error.message : 'No se pudo completar la operación.' }); }
 }

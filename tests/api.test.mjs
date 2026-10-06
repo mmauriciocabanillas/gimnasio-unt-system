@@ -27,7 +27,7 @@ test('ambos usuarios tienen acceso al mismo panel y acciones', async () => {
   for (const user of ['ProfesorGYM', 'Administrador']) {
     const session = `gym_session=${createSession(user, 1, env.SESSION_SECRET)}`;
     const seen = []; const r = await call('/api/closure', 'POST', { date: '2026-10-05', actor: 'intruso', version: 100 }, async (action, data) => { seen.push({ action, data }); return action === 'account.get' ? { hash, version: 1 } : { ok: true }; }, session);
-    assert.equal(r.statusCode, 200); assert.equal(seen[1].data.actor, user); assert.equal(seen[1].data.version, 1);
+    assert.equal(r.statusCode, 200); assert.equal(seen.length, 1); assert.equal(seen[0].data.actor, user); assert.equal(seen[0].data.version, 1);
   }
 });
 test('cambio persistente de versión revoca una sesión antigua', async () => {
@@ -68,4 +68,15 @@ test('rewrite de Vercel conserva ruta y filtros', async () => {
   let sent;
   const r = await call('/api/index?route=panel&shift=TARDE', 'GET', undefined, async (action, data) => { if (action === 'account.get') return { hash, version: 1 }; sent = data; return {}; }, session);
   assert.equal(r.statusCode, 200); assert.equal(sent.shift, 'TARDE');
+});
+
+test('estado diferencia configuración local de salud remota', async () => {
+  const r = await call('/api/status');
+  assert.equal(r.body.configured, true); assert.equal(r.body.health, 'not_checked');
+});
+
+test('identidad del limitador es del servidor, no del cuerpo público', async () => {
+  let sent;
+  await call('/api/attend', 'POST', { code: '00000001', method: 'CARNET', _rate: 'intruso' }, async (_, data) => { sent = data; return {}; });
+  assert.match(sent._rate, /^[a-f0-9]{64}$/); assert.notEqual(sent._rate, 'intruso');
 });

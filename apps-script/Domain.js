@@ -41,6 +41,10 @@ var GymDomain = (function () {
     }).sort(function (a, b) { return a.day - b.day; });
   }
   function liveReservations(state) { return state.reservations.filter(function (r) { return !r.until; }); }
+  function activeReservations(state, now) {
+    var time = new Date(now || Date.now()).getTime();
+    return state.reservations.filter(function (r) { return new Date(r.from).getTime() <= time && (!r.until || time < new Date(r.until).getTime()); });
+  }
   function occupancy(state, excluding, now) {
     var counts = {}, seen = {}, cutoff = new Date(now || Date.now()).getTime();
     // Reservar también el horario anterior mientras el cambio futuro no rige.
@@ -152,20 +156,21 @@ var GymDomain = (function () {
     state.audit.push({ action: 'CONFIGURACION', actor: actor, timestamp: new Date(now).toISOString(), detail: JSON.stringify(state.config) });
     return state.config;
   }
-  function dashboard(state, now, shift) {
-    recalculate(state, now);
+  function dashboard(state, now, shift, alreadyCalculated) {
+    if (!alreadyCalculated) recalculate(state, now);
     var matches = function (s) { return !shift || shift === 'TODO' || s.shift === shift; };
-    var expected = sessions(state, now).filter(matches), eligible = expected.filter(function (s) { var a = state.absences.find(function (a) { return a.key === s.key; }); return !s.closed && (!a || a.status !== 'NO_APLICA_BLOQUEO'); });
+    var absenceByKey = new Map(state.absences.map(function (a) { return [a.key, a]; }));
+    var expected = sessions(state, now).filter(matches), eligible = expected.filter(function (s) { var a = absenceByKey.get(s.key); return !s.closed && (!a || a.status !== 'NO_APLICA_BLOQUEO'); });
     var eligibleKeys = new Set(eligible.map(function (s) { return s.key; }));
     var attendance = state.attendance.filter(matches), absences = state.absences.filter(function (a) { return matches(a) && a.status === 'CONTABILIZADA'; });
     var finished = eligible.filter(function (s) { return s.finished; }), finishedKeys = new Set(finished.map(function (s) { return s.key; }));
     var received = attendance.filter(function (a) { return finishedKeys.has(a.key); }).length;
-    var slots = occupancy(state, null, now).filter(matches), codes = new Set(liveReservations(state).filter(function (r) { return matches(blockFor(r.start)); }).map(function (r) { return r.code; }));
+    var slots = occupancy(state, null, now).filter(matches), codes = new Set(activeReservations(state, now).filter(function (r) { return matches(blockFor(r.start)); }).map(function (r) { return r.code; }));
     var local = lima(now), today = sessions(state, new Date(instant(local.date, '23:59')).toISOString()).filter(function (s) { return s.date === local.date && matches(s); });
     var byBlock = BLOCKS.filter(matches).map(function (b) { var bs = slots.filter(function (s) { return s.start === b.start; }), ts = today.filter(function (s) { return s.start === b.start; }); return Object.assign({ occupied: bs.reduce(function (n, s) { return n + s.occupied; }, 0), capacity: bs.length * state.config.capacity, attendance: attendance.filter(function (a) { return a.start === b.start; }).length, scheduledToday: ts.filter(function (s) { return !s.closed; }).length, attendanceToday: attendance.filter(function (a) { return a.date === local.date && a.start === b.start; }).length, absencesToday: absences.filter(function (a) { return a.date === local.date && a.start === b.start; }).length }, b); });
     var byDay = state.config.days.map(function (day) { return { day: day, label: DAYS[day], attendance: attendance.filter(function (a) { return lima(instant(a.date, '12:00')).day === day; }).length }; });
     var byShift = ['MANANA', 'TARDE'].map(function (sh) { return { shift: sh, attendance: attendance.filter(function (a) { return a.shift === sh; }).length }; });
     return { period: state.period, today: local.date, shift: shift || 'TODO', registered: codes.size, attendance: attendance.length, absences: absences.length, blocked: state.students.filter(function (s) { return codes.has(s.code) && s.status === 'BLOQUEADO'; }).length, attendanceRate: finished.length ? Math.round(received / finished.length * 100) : 0, finishedApplicable: finished.length, byBlock: byBlock, byDay: byDay, byShift: byShift, slots: slots, attendanceApplicable: attendance.filter(function (a) { return eligibleKeys.has(a.key); }).length };
   }
-  return { DAYS: DAYS, BLOCKS: BLOCKS, empty: empty, lima: lima, instant: instant, nextPeriod: nextPeriod, norm: norm, fail: fail, occupancy: occupancy, sessions: sessions, recalculate: recalculate, register: register, attend: attend, closure: closure, changeSchedule: changeSchedule, configure: configure, dashboard: dashboard, blockFor: blockFor };
+  return { DAYS: DAYS, BLOCKS: BLOCKS, empty: empty, lima: lima, instant: instant, nextPeriod: nextPeriod, norm: norm, fail: fail, occupancy: occupancy, sessions: sessions, recalculate: recalculate, register: register, attend: attend, closure: closure, changeSchedule: changeSchedule, configure: configure, dashboard: dashboard, blockFor: blockFor, activeReservations: activeReservations };
 })();

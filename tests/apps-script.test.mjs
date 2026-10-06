@@ -58,7 +58,7 @@ test('operaciones de reserva toman el lock antes de leer y guardar; dos candidat
 });
 test('guardado operativo usa una única escritura atómica de todas las tablas', () => {
   const h = harness(); let called = 0;
-  h.context.Sheets = { Spreadsheets: { batchUpdate: (body, id) => { called++; assert.equal(id, 'sheet-id'); assert.equal(body.requests.length, 2); for (const r of body.requests) assert.ok(r.updateCells); } } };
+  h.context.Sheets = { Spreadsheets: { get: () => ({ sheets: [1, 2].map(id => ({ properties: { sheetId: id, gridProperties: { rowCount: 100, columnCount: 20 } } })) }), batchUpdate: (body, id) => { called++; assert.equal(id, 'sheet-id'); assert.equal(body.requests.length, 2); for (const r of body.requests) assert.ok(r.updateCells); } } };
   const sheet = id => ({ getSheetId: () => id, getLastRow: () => 1, getMaxRows: () => 100, getMaxColumns: () => 20 });
   h.context.gymAtomicWrite_({ getId: () => 'sheet-id' }, [{ sheet: sheet(1), headers: ['Código', 'Dato'], rows: [['00000001', '=NO_ES_FORMULA']] }, { sheet: sheet(2), headers: ['Inicio'], rows: [['08:00']] }]);
   assert.equal(called, 1);
@@ -95,4 +95,29 @@ test('exportación parcial no ejecuta guardado ni rotación del operativo', () =
   h.context.gymSave_ = () => { throw new Error('No debe guardar'); };
   assert.equal(request(h, 'export', { actor: 'Administrador', version: 1, shift: 'TODO' }).ok, true);
   assert.equal(h.props.get('CURRENT_PERIOD'), '2026-10');
+});
+
+test('lecturas liberan el lock antes de consultar Sheets; escrituras siguen protegidas', () => {
+  const h = harness(); h.context.gymDispatch_ = () => { assert.equal(h.locked(), false); return {}; };
+  assert.equal(request(h, 'public.config', {}).ok, true);
+});
+
+test('rate limit de login persiste entre ejecuciones y no almacena IP ni contraseña', () => {
+  const h = harness(); h.context.gymDispatch_ = () => ({});
+  const data = { user: 'ProfesorGYM', _rate: 'a'.repeat(64) };
+  for (let i = 0; i < 12; i++) assert.equal(request(h, 'account.get', data).ok, true);
+  assert.equal(request(h, 'account.get', data).status, 429);
+  assert.ok(h.props.get('RATE_V1_a')); assert.ok(!h.props.get('RATE_V1_a').includes('password'));
+});
+
+test('escritura incremental conserva filas previas y omite tablas sin cambios', () => {
+  const h = harness(); let body;
+  h.context.Sheets = { Spreadsheets: { get: () => ({ sheets: [1, 2].map(id => ({ properties: { sheetId: id, gridProperties: { rowCount: 100, columnCount: 20 } } })) }), batchUpdate: value => { body = value; } } };
+  const sheet = id => ({ getSheetId: () => id });
+  h.context.gymAtomicWrite_({ getId: () => 'sheet-id' }, [
+    { sheet: sheet(1), headers: ['Código'], rows: [['0001'], ['0002']], previousRows: [['Código'], ['0001']] },
+    { sheet: sheet(2), headers: ['Inicio'], rows: [['08:00']], previousRows: [['Inicio'], ['08:00']] }
+  ]);
+  assert.equal(body.requests.length, 1); assert.equal(body.requests[0].updateCells.range.startRowIndex, 2);
+  assert.equal(body.requests[0].updateCells.rows.length, 1);
 });

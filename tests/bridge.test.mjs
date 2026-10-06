@@ -1,9 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bridge, HttpError } from '../server/bridge.mjs';
+import { bridge, HttpError, configured } from '../server/bridge.mjs';
 
 const env = { APPS_SCRIPT_URL: 'https://script.google.com/macros/s/test/exec', APPS_SCRIPT_SECRET: 'a'.repeat(32), SESSION_SECRET: 'b'.repeat(32) };
 const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+
+test('estado configurado exige URL /exec válida además de los secretos', () => {
+  assert.equal(configured(env), true);
+  for (const url of ['', 'http://example.com', 'https://script.google.com/macros/s/test/dev']) assert.equal(configured({ ...env, APPS_SCRIPT_URL: url }), false);
+});
 
 test('lectura reintenta HTML temporal con un nonce nuevo y conserva la firma privada', async () => {
   const requests = [];

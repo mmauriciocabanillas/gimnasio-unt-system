@@ -4,6 +4,7 @@ var GYM_FOLDERS = {
   reports: '1Sb7_aVAIRwzgSx0IWK-LIok9tJPG5qqw'
 };
 var GYM_MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+var GYM_REVISION = '2026-10-06-performance-1';
 var GYM_TABLES = {
   students: { name: 'REGISTRADOS', headers: ['Código', 'Alumno', 'Facultad', 'Carrera', 'Ciclo', 'Día 1', 'Hora 1', 'Día 2', 'Hora 2', 'Día 3', 'Hora 3', 'Faltas', 'Estado', 'JSON_INTERNO'] },
   reservations: { name: 'HORARIOS', headers: ['Código', 'Día', 'Inicio', 'Fin', 'Turno', 'Vigente desde', 'Vigente hasta', 'JSON_INTERNO'] },
@@ -21,7 +22,7 @@ function gymLock_(fn) {
 }
 function gymVerify_(envelope) {
   var secret = gymProperties_().getProperty('APPS_SCRIPT_SECRET');
-  if (!secret || !envelope || typeof envelope.payload !== 'string' || Math.abs(Date.now() - Number(envelope.timestamp)) > 120000 || !/^[a-f0-9]{32}$/.test(envelope.nonce || '')) GymDomain.fail('Solicitud no autorizada.', 401);
+  if (!secret || !envelope || typeof envelope.payload !== 'string' || !Number.isFinite(Number(envelope.timestamp)) || Math.abs(Date.now() - Number(envelope.timestamp)) > 120000 || !/^[a-f0-9]{32}$/.test(envelope.nonce || '')) GymDomain.fail('Solicitud no autorizada.', 401);
   var bytes = Utilities.computeHmacSha256Signature(envelope.timestamp + '.' + envelope.nonce + '.' + envelope.payload, secret);
   var expected = bytes.map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
   if (expected !== envelope.signature) GymDomain.fail('Solicitud no autorizada.', 401);
@@ -30,14 +31,34 @@ function gymVerify_(envelope) {
   cache.put('nonce_' + envelope.nonce, '1', 240);
   return JSON.parse(envelope.payload);
 }
+function gymRateLimit_(request) {
+  var limits = { 'account.get': [12, 600000], 'public.config': [120, 60000], register: [60, 600000], attend: [120, 60000] };
+  var rule = limits[request.action], identity = request.data && request.data._rate;
+  if (!rule || !identity) return; // Compatibilidad con el servidor anterior durante el despliegue.
+  if (!/^[a-f0-9]{64}$/.test(identity)) GymDomain.fail('Solicitud inválida.');
+  var props = gymProperties_(), key = 'RATE_V1_' + identity[0], now = Date.now();
+  var entries = JSON.parse(props.getProperty(key) || '{}');
+  Object.keys(entries).forEach(function (id) { if (entries[id][1] <= now) delete entries[id]; });
+  var id = identity.slice(1, 25) + ':' + request.action, entry = entries[id] || [0, now + rule[1]];
+  if (entry[0] >= rule[0]) GymDomain.fail('Demasiados intentos. Espera unos minutos antes de volver a intentar.', 429);
+  if (!entries[id] && Object.keys(entries).length >= 80) GymDomain.fail('Hay demasiadas solicitudes. Intenta en unos minutos.', 429);
+  entries[id] = [entry[0] + 1, entry[1]];
+  props.setProperty(key, JSON.stringify(entries));
+}
 function doGet() { return gymJson_({ ok: false, status: 405, error: 'Este endpoint solo admite solicitudes firmadas del servidor.' }); }
 function doPost(e) {
   try {
     if (!e || !e.postData || e.postData.contents.length > 150000) GymDomain.fail('Solicitud inválida.');
-    var result = gymLock_(function () {
+    var readonly = ['account.get', 'public.config', 'panel'];
+    var verified = gymLock_(function () {
       var request = gymVerify_(JSON.parse(e.postData.contents));
-      return gymDispatch_(request.action, request.data || {});
+      gymRateLimit_(request);
+      if (readonly.includes(request.action)) return { request: request };
+      return { result: gymDispatch_(request.action, request.data || {}) };
     });
+    // Lecturas por lote no mantienen ocupado el lock durante viajes a Sheets.
+    // Las mutaciones conservan lectura, validación de cupo y guardado bajo el mismo lock.
+    var result = verified.request ? gymDispatch_(verified.request.action, verified.request.data || {}) : verified.result;
     return gymJson_({ ok: true, data: result });
   } catch (error) { return gymJson_({ ok: false, status: error.status || 500, error: error.status ? error.message : 'No se pudo completar la operación de Google. Revisa Ejecuciones en Apps Script.' }); }
 }
@@ -93,6 +114,7 @@ function gymCreateMonth_(period) {
     var table = GYM_TABLES[key], sheet = ss.getSheetByName(table.name) || ss.insertSheet(table.name);
     gymWriteRows_(sheet, table.headers, []);
     sheet.hideColumns(table.headers.length);
+    if (table.name === 'ASISTENCIAS') sheet.hideColumns(7, 4);
     if (!['REGISTRADOS', 'ASISTENCIAS', 'CIERRES'].includes(table.name)) sheet.hideSheet();
   });
   ['CUPOS', 'CONFIGURACIÓN', 'DASHBOARD'].forEach(function (name) { if (!ss.getSheetByName(name)) ss.insertSheet(name); });
@@ -101,13 +123,24 @@ function gymCreateMonth_(period) {
   props.setProperty('MONTH_READY_' + period, '1');
   return ss;
 }
-function gymRead_(ss) {
+function gymRead_(ss, selectedKeys) {
   var state = GymDomain.empty(gymProperties_().getProperty('CURRENT_PERIOD'), gymConfig_());
-  Object.keys(GYM_TABLES).forEach(function (key) {
-    var table = GYM_TABLES[key], sheet = ss.getSheetByName(table.name);
-    if (!sheet) GymDomain.fail('Falta la hoja ' + table.name + '. No alteres la estructura operativa.', 503);
-    state[key] = sheet.getLastRow() < 2 ? [] : sheet.getRange(2, table.headers.length, sheet.getLastRow() - 1, 1).getValues().filter(function (r) { return r[0]; }).map(function (r) { return JSON.parse(r[0]); });
+  var keys = selectedKeys || Object.keys(GYM_TABLES), ranges = keys.map(function (key) {
+    var table = GYM_TABLES[key]; return "'" + table.name + "'!A1:" + String.fromCharCode(64 + table.headers.length);
   });
+  var names = keys.map(function (key) { return GYM_TABLES[key].name; });
+  if (!selectedKeys) { names = names.concat(['CUPOS', 'CONFIGURACIÓN', 'DASHBOARD']); ranges = ranges.concat(["'CUPOS'!A1:G", "'CONFIGURACIÓN'!A1:B", "'DASHBOARD'!A1:C"]); }
+  var result;
+  try { result = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges, valueRenderOption: 'UNFORMATTED_VALUE' }); }
+  catch (_) { GymDomain.fail('No se pudo leer el mes. Verifica las hojas y Google Sheets API.', 503); }
+  var persisted = {};
+  names.forEach(function (name, i) { persisted[name] = (result.valueRanges[i] || {}).values || []; });
+  keys.forEach(function (key) {
+    var table = GYM_TABLES[key], rows = persisted[table.name];
+    if (!rows[0] || rows[0][table.headers.length - 1] !== 'JSON_INTERNO') GymDomain.fail('Estructura inválida de ' + table.name + '.', 503);
+    state[key] = rows.slice(1).filter(function (r) { return r[table.headers.length - 1]; }).map(function (r) { return JSON.parse(r[table.headers.length - 1]); });
+  });
+  Object.defineProperty(state, '_persisted', { value: persisted, enumerable: false });
   return state;
 }
 function gymSafeCell_(value) { return typeof value === 'string' && /^[=+@-]/.test(value) ? "'" + value : value; }
@@ -121,11 +154,13 @@ function gymWriteRows_(sheet, headers, rows) {
   sheet.getRange(1, 1, 1, headers.length).setBackground('#041d37').setFontColor('#ffffff').setFontWeight('bold');
   sheet.autoResizeColumns(1, Math.min(headers.length, 13));
 }
-function gymRows_(state, key) {
+function gymRows_(state, key, now) {
+  var studentByCode = new Map(state.students.map(function (s) { return [s.code, s]; }));
+  var active = GymDomain.activeReservations(state, now || new Date());
   return state[key].map(function (row) {
-    var student = state.students.find(function (s) { return s.code === row.code; }) || {}, base;
+    var student = studentByCode.get(row.code) || {}, base;
     if (key === 'students') {
-      var slots = state.reservations.filter(function (r) { return r.code === row.code && !r.until; }).sort(function (a, b) { return a.day - b.day; });
+      var slots = active.filter(function (r) { return r.code === row.code; }).sort(function (a, b) { return a.day - b.day; });
       base = [row.code, row.fullName, row.faculty, row.career, row.cycle];
       for (var i = 0; i < 3; i++) base.push(slots[i] ? GymDomain.DAYS[slots[i].day] : '', slots[i] ? slots[i].start + '–' + GymDomain.blockFor(slots[i].start).end : '');
       base.push(row.absences, row.status);
@@ -138,52 +173,80 @@ function gymRows_(state, key) {
   });
 }
 function gymSave_(state, ss) {
-  GymDomain.recalculate(state, new Date());
-  var writes = Object.keys(GYM_TABLES).map(function (key) { var table = GYM_TABLES[key]; return { sheet: ss.getSheetByName(table.name), headers: table.headers, rows: gymRows_(state, key) }; });
+  var now = new Date(); GymDomain.recalculate(state, now);
+  var writes = Object.keys(GYM_TABLES).map(function (key) { var table = GYM_TABLES[key]; return { name: table.name, headers: table.headers, rows: gymRows_(state, key, now) }; });
   var slots = GymDomain.occupancy(state);
-  writes.push({ sheet: ss.getSheetByName('CUPOS'), headers: ['Día', 'Inicio', 'Fin', 'Turno', 'Ocupados', 'Disponibles', 'Aforo'], rows: slots.map(function (s) { return [s.dayName, s.start, s.end, s.shift, s.occupied, s.available, state.config.capacity]; }) });
-  writes.push({ sheet: ss.getSheetByName('CONFIGURACIÓN'), headers: ['Clave', 'Valor'], rows: [['Periodo', state.period], ['Zona horaria', 'America/Lima'], ['Días', state.config.days.map(function (d) { return GymDomain.DAYS[d]; }).join(', ')], ['Aforo', 20], ['Límite de faltas', 3], ['Inscripciones', state.config.enabled ? 'ABIERTAS' : 'CERRADAS'], ['Código', state.config.codePattern]] });
-  var dash = GymDomain.dashboard(state, new Date(), 'TODO');
+  writes.push({ name: 'CUPOS', headers: ['Día', 'Inicio', 'Fin', 'Turno', 'Ocupados', 'Disponibles', 'Aforo'], rows: slots.map(function (s) { return [s.dayName, s.start, s.end, s.shift, s.occupied, s.available, state.config.capacity]; }) });
+  writes.push({ name: 'CONFIGURACIÓN', headers: ['Clave', 'Valor'], rows: [['Periodo', state.period], ['Zona horaria', 'America/Lima'], ['Días', state.config.days.map(function (d) { return GymDomain.DAYS[d]; }).join(', ')], ['Aforo', 20], ['Límite de faltas', 3], ['Inscripciones', state.config.enabled ? 'ABIERTAS' : 'CERRADAS'], ['Código', state.config.codePattern]] });
+  var dash = GymDomain.dashboard(state, now, 'TODO', true);
   var dashboardRows = [['Periodo', state.period, ''], ['Inscritos', dash.registered, ''], ['Asistencias', dash.attendance, ''], ['Faltas', dash.absences, ''], ['Bloqueados', dash.blocked, ''], ['Asistencia sobre sesiones finalizadas aplicables (%)', dash.attendanceRate, ''], ['', '', ''], ['Horario', 'Reservas', 'Asistencias']];
   dashboardRows = dashboardRows.concat(dash.byBlock.map(function (b) { return [b.start + '–' + b.end, b.occupied, b.attendance]; }));
   dashboardRows.push(['', '', ''], ['Día', 'Asistencias', '']);
   GymDomain.DAYS.forEach(function (name, day) { var item = dash.byDay.find(function (d) { return d.day === day; }); dashboardRows.push([name, item ? item.attendance : 0, '']); });
   dashboardRows.push(['', '', ''], ['Turno', 'Asistencias', '']);
   dashboardRows = dashboardRows.concat(dash.byShift.map(function (s) { return [s.shift, s.attendance, '']; }));
-  writes.push({ sheet: ss.getSheetByName('DASHBOARD'), headers: ['Indicador', 'Valor', 'Asistencias'], rows: dashboardRows });
+  writes.push({ name: 'DASHBOARD', headers: ['Indicador', 'Valor', 'Asistencias'], rows: dashboardRows });
+  writes.forEach(function (write) { write.previousRows = state._persisted && state._persisted[write.name]; });
   gymAtomicWrite_(ss, writes);
-  ss.getSheetByName('ASISTENCIAS').hideColumns(7, 4);
-  SpreadsheetApp.flush();
 }
 function gymEnsureDashboardCharts_(sheet) {
-  if (sheet.getCharts().length) return;
-  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(9, 1, 9, 3)).setPosition(1, 5, 0, 0).setOption('title', 'Reservas y asistencia por horario').setOption('colors', ['#f5c52b', '#041d37']).build());
-  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(19, 1, 8, 2)).setPosition(20, 5, 0, 0).setOption('title', 'Asistencia por día').setOption('colors', ['#041d37']).build());
-  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(28, 1, 3, 2)).setPosition(39, 5, 0, 0).setOption('title', 'Comparación mañana / tarde').setOption('colors', ['#f5c52b']).build());
+  var titles = ['Reservas y asistencia por horario', 'Asistencia por día', 'Comparación mañana / tarde'];
+  // Sustituir únicamente los tres gráficos de la app; conservar los ajenos.
+  sheet.getCharts().forEach(function (chart) { if (titles.includes(chart.getOptions().get('title'))) sheet.removeChart(chart); });
+  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(9, 1, GymDomain.BLOCKS.length + 1, 3)).setPosition(1, 5, 0, 0).setOption('title', titles[0]).setOption('colors', ['#f5c52b', '#041d37']).build());
+  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(20, 1, 8, 2)).setPosition(20, 5, 0, 0).setOption('title', titles[1]).setOption('colors', ['#041d37']).build());
+  sheet.insertChart(sheet.newChart().asColumnChart().addRange(sheet.getRange(29, 1, 3, 2)).setPosition(39, 5, 0, 0).setOption('title', titles[2]).setOption('colors', ['#f5c52b']).build());
+}
+function actualizarGraficosDesdeEditor() {
+  return gymLock_(function () {
+    var props = gymProperties_(), period = props.getProperty('CURRENT_PERIOD');
+    if (!period) GymDomain.fail('El sistema aún no se ha inicializado.', 503);
+    var ss = SpreadsheetApp.openById(props.getProperty('MONTH_' + period));
+    gymEnsureDashboardCharts_(ss.getSheetByName('DASHBOARD'));
+    console.log('Gráficos actualizados. Los registros y las cuentas se conservan.');
+    return { period: period, revision: GYM_REVISION };
+  });
 }
 function gymAtomicWrite_(ss, writes) {
   // Una sola petición batchUpdate: Google aplica todos los cambios o ninguno.
   // Evita dejar REGISTRADOS guardado y HORARIOS sin guardar ante un fallo.
-  var requests = [];
+  var requests = [], metadata;
   writes.forEach(function (write) {
-    var sheet = write.sheet, values = [write.headers].concat(write.rows), id = sheet.getSheetId();
-    var rowCount = Math.max(sheet.getLastRow(), values.length);
-    if (rowCount > sheet.getMaxRows()) requests.push({ appendDimension: { sheetId: id, dimension: 'ROWS', length: rowCount - sheet.getMaxRows() } });
-    if (write.headers.length > sheet.getMaxColumns()) requests.push({ appendDimension: { sheetId: id, dimension: 'COLUMNS', length: write.headers.length - sheet.getMaxColumns() } });
-    requests.push({ updateCells: { range: { sheetId: id, startRowIndex: 0, endRowIndex: rowCount, startColumnIndex: 0, endColumnIndex: write.headers.length }, rows: values.map(function (row) { return { values: row.map(function (value) { return { userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: String(value == null ? '' : value) } }; }) }; }), fields: 'userEnteredValue' } });
+    var values = [write.headers].concat(write.rows), previous = write.previousRows || [], first = 0;
+    function equal(a, b) { return write.headers.every(function (_, i) { return (a[i] == null ? '' : a[i]) === (b[i] == null ? '' : b[i]); }); }
+    while (first < values.length && first < previous.length && equal(values[first], previous[first])) first++;
+    if (first === values.length && first === previous.length) return;
+    if (!metadata) metadata = Sheets.Spreadsheets.get(ss.getId(), { fields: 'sheets.properties' }).sheets;
+    var info = metadata.find(function (s) { return write.name ? s.properties.title === write.name : s.properties.sheetId === write.sheet.getSheetId(); });
+    if (!info) GymDomain.fail('Falta una hoja operativa. No alteres la estructura.', 503);
+    var id = info.properties.sheetId, grid = info.properties.gridProperties;
+    var rowCount = Math.max(previous.length, values.length);
+    if (rowCount > grid.rowCount) requests.push({ appendDimension: { sheetId: id, dimension: 'ROWS', length: rowCount - grid.rowCount } });
+    if (write.headers.length > grid.columnCount) requests.push({ appendDimension: { sheetId: id, dimension: 'COLUMNS', length: write.headers.length - grid.columnCount } });
+    requests.push({ updateCells: { range: { sheetId: id, startRowIndex: first, endRowIndex: rowCount, startColumnIndex: 0, endColumnIndex: write.headers.length }, rows: values.slice(first).map(function (row) { return { values: row.map(function (value) { return { userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: String(value == null ? '' : value) } }; }) }; }), fields: 'userEnteredValue' } });
   });
+  if (!requests.length) return;
   try { Sheets.Spreadsheets.batchUpdate({ requests: requests }, ss.getId()); }
   catch (_) { GymDomain.fail('No se pudo confirmar el guardado. Revisa el registro antes de repetir la operación y verifica que Google Sheets API esté habilitada.', 502); }
 }
-function gymOperational_() {
+function gymPanel_(state, ss, now, shift, actor) {
+  if (shift && !['TODO', 'MANANA', 'TARDE'].includes(shift)) GymDomain.fail('Turno inválido.');
+  GymDomain.recalculate(state, now);
+  var active = GymDomain.activeReservations(state, now), future = state.reservations.filter(function (r) { return new Date(r.from).getTime() > now.getTime(); });
+  var dashboards = {};
+  ['TODO', 'MANANA', 'TARDE'].forEach(function (s) { dashboards[s] = GymDomain.dashboard(state, now, s, true); });
+  return { dashboard: dashboards[shift || 'TODO'], dashboards: dashboards, user: actor, revision: GYM_REVISION, updatedAt: now.toISOString(), students: state.students.map(function (s) { return Object.assign({}, s, { slots: active.filter(function (r) { return r.code === s.code; }), futureSlots: future.filter(function (r) { return r.code === s.code; }) }); }), attendance: state.attendance, absences: state.absences, closures: state.closures, config: state.config, sheetUrl: ss.getUrl() };
+}
+function gymOperational_(selectedKeys) {
   var props = gymProperties_(), period = props.getProperty('CURRENT_PERIOD');
   if (!period) GymDomain.fail('El sistema aún no se ha inicializado.', 503);
   // No exportar/rotar desde cada petición pública: el activador hace el cierre.
   if (period !== GymDomain.lima(new Date()).period) GymDomain.fail('El cierre mensual está pendiente. Revisa la automatización.', 503);
   var ss = SpreadsheetApp.openById(props.getProperty('MONTH_' + period));
-  return { sheet: ss, state: gymRead_(ss) };
+  return { sheet: ss, state: gymRead_(ss, selectedKeys) };
 }
 function gymDispatch_(action, data) {
+  if (!['initialize', 'account.get', 'account.change', 'public.config', 'register', 'attend', 'panel', 'closure', 'schedule', 'configure', 'export'].includes(action)) GymDomain.fail('Operación desconocida.', 404);
   var props = gymProperties_();
   if (action === 'initialize') return gymInitialize_(data);
   if (action === 'account.get') return gymAccount_(data.user);
@@ -194,14 +257,15 @@ function gymDispatch_(action, data) {
     props.setProperty('ACCOUNT_' + data.actor, JSON.stringify({ hash: data.hash, version: old.version + 1 }));
     return { version: old.version + 1 };
   }
-  var operational = gymOperational_(), state = operational.state, ss = operational.sheet, now = new Date(), result;
-  if (action === 'public.config') return { period: state.period, today: GymDomain.lima(now).date, enabled: state.config.enabled, days: state.config.days, capacity: state.config.capacity, slots: GymDomain.occupancy(state) };
+  var actor = ['public.config', 'register', 'attend'].includes(action) ? null : gymActor_(data);
+  var selectedKeys = action === 'public.config' ? ['reservations'] : action === 'panel' ? ['students', 'reservations', 'attendance', 'absences', 'closures'] : undefined;
+  var operational = gymOperational_(selectedKeys), state = operational.state, ss = operational.sheet, now = new Date(), result;
+  if (action === 'public.config') return { period: state.period, revision: GYM_REVISION, today: GymDomain.lima(now).date, enabled: state.config.enabled, days: state.config.days, capacity: state.config.capacity, slots: GymDomain.occupancy(state) };
   if (action === 'register') result = GymDomain.register(state, data, now);
   else if (action === 'attend') result = GymDomain.attend(state, data, now);
   else {
-    var actor = gymActor_(data);
     if (action === 'panel') {
-      return { dashboard: GymDomain.dashboard(state, now, data.shift), students: state.students.map(function (s) { return Object.assign({}, s, { slots: state.reservations.filter(function (r) { return r.code === s.code && !r.until; }) }); }), attendance: state.attendance, absences: state.absences, closures: state.closures, config: state.config, sheetUrl: ss.getUrl() };
+      return gymPanel_(state, ss, now, data.shift, actor);
     }
     if (action === 'closure') result = GymDomain.closure(state, data, actor, now);
     else if (action === 'schedule') result = GymDomain.changeSchedule(state, data, actor, now);
@@ -209,8 +273,9 @@ function gymDispatch_(action, data) {
     else if (action === 'export') return gymExport_(state, data.shift || 'TODO', Boolean(data.archive), false);
     else GymDomain.fail('Operación desconocida.', 404);
   }
-  GymDomain.recalculate(state, now); gymSave_(state, ss);
+  if (action !== 'attend' || !result.duplicate) gymSave_(state, ss);
   if (action === 'configure') props.setProperty('GENERAL_CONFIG', JSON.stringify(state.config));
+  if (actor && data.includePanel === true) result = Object.assign({}, result, { panel: gymPanel_(state, ss, now, data.panelShift || 'TODO', actor) });
   return result;
 }
 function gymSubfolder_(parent, name) { var list = parent.getFoldersByName(name); return list.hasNext() ? list.next() : parent.createFolder(name); }
@@ -239,7 +304,7 @@ function gymExport_(state, shift, archive, finalReport) {
     gymWriteRows_(overview, ['Indicador', 'Valor'], [['Periodo', state.period], ['Alcance', shift], ['Inscritos', dash.registered], ['Asistencias', dash.attendance], ['Faltas', dash.absences], ['Bloqueados', dash.blocked], ['Asistencia de sesiones finalizadas (%)', dash.attendanceRate], ['Fecha de corte', GymDomain.lima(now).date]]);
     ['students', 'attendance', 'absences', 'closures', 'reservations'].forEach(function (key) {
       var table = GYM_TABLES[key], sheet = temp.insertSheet(table.name);
-      gymWriteRows_(sheet, table.headers.slice(0, -1), gymRows_(filtered, key).map(function (r) { return r.slice(0, -1); }));
+      gymWriteRows_(sheet, table.headers.slice(0, -1), gymRows_(filtered, key, now).map(function (r) { return r.slice(0, -1); }));
     });
     var charts = temp.insertSheet('GRÁFICOS');
     gymWriteRows_(charts, ['Horario', 'Reservas', 'Asistencias'], dash.byBlock.map(function (b) { return [b.start + '–' + b.end, b.occupied, b.attendance]; }));

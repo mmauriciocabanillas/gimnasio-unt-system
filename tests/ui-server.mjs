@@ -6,9 +6,10 @@ import { readFile } from 'node:fs/promises';
 
 const context = vm.createContext({ console });
 vm.runInContext(await readFile('apps-script/Domain.js', 'utf8'), context);
-const G = context.GymDomain, state = G.empty('2026-10'); state.config.enabled = true;
-const now = new Date('2026-10-05T14:30:00-05:00');
-G.register(state, { code: '00000001', names: 'Alumno', surnames: 'De Prueba', faculty: 'Facultad de prueba', career: 'Carrera de prueba', cycle: 3, method: 'CARNET', slots: [{ day: 1, start: '08:00' }, { day: 3, start: '16:00' }] }, new Date('2026-10-01T07:00:00-05:00'));
+const G = context.GymDomain;
+let state = G.empty('2026-10'), now = new Date('2026-10-05T14:30:00-05:00'); state.config.enabled = true;
+try { state = JSON.parse(await readFile('docs/simulacion/octubre-2026-datos-ficticios.json', 'utf8')).october; now = new Date('2026-10-30T20:00:00-05:00'); }
+catch { G.register(state, { code: '00000001', names: 'Alumno', surnames: 'De Prueba', faculty: 'Facultad de prueba', career: 'Carrera de prueba', cycle: 3, method: 'CARNET', slots: [{ day: 1, start: '08:00' }, { day: 3, start: '16:00' }] }, new Date('2026-10-01T07:00:00-05:00')); }
 G.recalculate(state, now);
 const vite = await viteServer({ server: { middlewareMode: true, hmr: { port: 24679 } }, appType: 'spa' });
 const server = httpServer(async (req, res) => {
@@ -19,7 +20,7 @@ const server = httpServer(async (req, res) => {
     status: { connected: true, publicUrl: '' },
     public: { period: state.period, today: G.lima(now).date, enabled: true, days: state.config.days, capacity: 20, slots: G.occupancy(state, null, now) },
     me: { user: 'ProfesorGYM' },
-    panel: { dashboard: G.dashboard(state, now, shift), students: state.students.map(s => ({ ...s, slots: state.reservations.filter(r => r.code === s.code && !r.until) })), attendance: state.attendance, absences: state.absences, closures: state.closures, config: state.config, sheetUrl: 'https://docs.google.com/spreadsheets/' }
+    panel: { user: 'ProfesorGYM', updatedAt: now.toISOString(), dashboards: Object.fromEntries(['TODO', 'MANANA', 'TARDE'].map(s => [s, G.dashboard(state, now, s)])), dashboard: G.dashboard(state, now, shift), students: state.students.map(s => ({ ...s, slots: G.activeReservations(state, now).filter(r => r.code === s.code), futureSlots: state.reservations.filter(r => r.code === s.code && new Date(r.from) > now) })), attendance: state.attendance, absences: state.absences, closures: state.closures, config: state.config, sheetUrl: 'https://docs.google.com/spreadsheets/' }
   };
   res.setHeader('Content-Type', 'application/json'); res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET' || !Object.hasOwn(data, action)) { res.statusCode = 405; return res.end(JSON.stringify({ error: 'Servidor QA: las escrituras están deshabilitadas.' })); }

@@ -12,6 +12,17 @@ const form = (code = '00000001', slots = [{ day: 1, start: '08:00' }]) => ({ cod
 const signup = (s, code = '00000001', slots) => G.register(s, form(code, slots), at('2026-10-01'));
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('horario vigente y conteos no adelantan un cambio futuro entre turnos', () => {
+  const s = initial(); signup(s);
+  G.changeSchedule(s, { code: '00000001', effectiveDate: '2026-10-06', slots: [{ day: 3, start: '19:00' }] }, 'Administrador', at('2026-10-05'));
+  assert.equal(G.activeReservations(s, at('2026-10-05'))[0].start, '08:00');
+  assert.equal(G.dashboard(s, at('2026-10-05'), 'MANANA').registered, 1);
+  assert.equal(G.dashboard(s, at('2026-10-05'), 'TARDE').registered, 0);
+  assert.equal(G.activeReservations(s, at('2026-10-06'))[0].start, '19:00');
+  assert.equal(G.dashboard(s, at('2026-10-06'), 'MANANA').registered, 0);
+  assert.equal(G.dashboard(s, at('2026-10-06'), 'TARDE').registered, 1);
+});
+
 test('America/Lima usa la fecha de Perú aunque UTC esté en el día siguiente', () => {
   assert.deepEqual(plain(G.lima('2026-10-06T02:20:00Z')), { date: '2026-10-05', time: '21:20', day: 1, period: '2026-10' });
 });
