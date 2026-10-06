@@ -6,3 +6,5 @@ dist/
 *.log
 .clasp.json
 .clasprc.json
+docs/simulacion/exportacion-real-google.xlsx
+docs/simulacion/preview-real-*.png

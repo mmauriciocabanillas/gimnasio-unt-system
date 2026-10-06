@@ -36,4 +36,4 @@ Ingreso de ambas cuentas; rechazo de contraseña; acceso sin sesión; configurac
 
 La exportación ejecutó la construcción de tablas y tres gráficos de Code.js. El servicio de exportación y el binario XLSX son simulados: no se ha validado un Excel real ni la persistencia remota, cámara física, permisos de Drive o activadores reales. Las dos solicitudes al último cupo se verifican secuencialmente bajo el lock simulado; no acreditan concurrencia real de Google.
 
-Tiempo local: 44716 ms. No equivale al tiempo en Vercel. Datos y cronología: [octubre-2026-datos-ficticios.json](octubre-2026-datos-ficticios.json).
+Tiempo local: 26330 ms. No equivale al tiempo en Vercel. Datos y cronología: [octubre-2026-datos-ficticios.json](octubre-2026-datos-ficticios.json).

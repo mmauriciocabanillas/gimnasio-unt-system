@@ -91,6 +91,7 @@ var GymDomain = (function () {
   function register(state, input, now) {
     requirePeriod(state, now);
     if (!state.config.enabled) fail('Las inscripciones aún no están habilitadas.', 503);
+    if (input.period !== undefined && input.period !== state.period) fail('El mes cambió. Actualiza la página y revisa tus horarios antes de inscribirte.', 409);
     if (input.method !== 'CARNET') fail('La inscripción requiere leer el carnet.');
     var value = code(input.code, state);
     if (state.students.some(function (s) { return s.code === value; })) fail('Este código ya está inscrito en el mes.', 409);

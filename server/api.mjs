@@ -53,7 +53,7 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
       const input = await requestBody(req);
       // No reenviar campos de cuenta/versión recibidos desde el público.
       const data = path === '/api/register'
-        ? { code: input.code, method: input.method, names: input.names, surnames: input.surnames, faculty: input.faculty, career: input.career, cycle: input.cycle, slots: input.slots }
+        ? { period: input.period, code: input.code, method: input.method, names: input.names, surnames: input.surnames, faculty: input.faculty, career: input.career, cycle: input.cycle, slots: input.slots }
         : { code: input.code, method: input.method, fullName: input.fullName };
       return send(200, await invoke(path.endsWith('register') ? 'register' : 'attend', { ...data, _rate: rateKey }));
     }

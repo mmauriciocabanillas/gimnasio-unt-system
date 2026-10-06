@@ -4,7 +4,7 @@ var GYM_FOLDERS = {
   reports: '1Sb7_aVAIRwzgSx0IWK-LIok9tJPG5qqw'
 };
 var GYM_MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
-var GYM_REVISION = '2026-10-06-performance-1';
+var GYM_REVISION = '2026-10-06-flow-2';
 var GYM_TABLES = {
   students: { name: 'REGISTRADOS', headers: ['Código', 'Alumno', 'Facultad', 'Carrera', 'Ciclo', 'Día 1', 'Hora 1', 'Día 2', 'Hora 2', 'Día 3', 'Hora 3', 'Faltas', 'Estado', 'JSON_INTERNO'] },
   reservations: { name: 'HORARIOS', headers: ['Código', 'Día', 'Inicio', 'Fin', 'Turno', 'Vigente desde', 'Vigente hasta', 'JSON_INTERNO'] },
@@ -60,7 +60,10 @@ function doPost(e) {
     // Las mutaciones conservan lectura, validación de cupo y guardado bajo el mismo lock.
     var result = verified.request ? gymDispatch_(verified.request.action, verified.request.data || {}) : verified.result;
     return gymJson_({ ok: true, data: result });
-  } catch (error) { return gymJson_({ ok: false, status: error.status || 500, error: error.status ? error.message : 'No se pudo completar la operación de Google. Revisa Ejecuciones en Apps Script.' }); }
+  } catch (error) {
+    if (!error.status) console.error('Error interno ' + String(error.name || 'Error') + '\n' + String(error.stack || '').split('\n').filter(function (line) { return /^\s+at /.test(line); }).join('\n'));
+    return gymJson_({ ok: false, status: error.status || 500, error: error.status ? error.message : 'No se pudo completar la operación de Google. Revisa Ejecuciones en Apps Script.' });
+  }
 }
 function gymSheetName_(period) { return 'GIMNASIO_UNT_' + GYM_MONTHS[Number(period.slice(5)) - 1] + '_' + period.slice(0, 4); }
 function gymConfig_() { return JSON.parse(gymProperties_().getProperty('GENERAL_CONFIG') || JSON.stringify(GymDomain.empty('2000-01').config)); }

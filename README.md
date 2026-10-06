@@ -67,3 +67,15 @@ npm run simulate:month
 ```
 
 Produce el [resumen mensual](docs/simulacion/RESULTADO-MENSUAL.md) y un JSON de datos ficticios. No importar ese JSON a producción. Para revisar sus pantallas localmente, ejecutar node tests/ui-server.mjs y abrir http://localhost:3181; el servidor QA no permite escrituras.
+
+Recorrido con acciones de alumno y personal: [auditoría de flujos](docs/AUDITORIA-FLUJOS-USUARIO-2026-10-06.md). Distingue pruebas de interfaz, simulación mensual y comprobaciones reales de Google.
+
+Para probar formularios y cambios sin tocar producción:
+
+```powershell
+npm run qa:flow
+```
+
+Abrir http://localhost:3182 y http://localhost:3182/__qa. La segunda página controla el reloj y la cámara virtual. Este servidor solo escucha en esta computadora, no carga `.env.local` y reemplaza Google por memoria; las contraseñas de prueba aparecen en el control QA. Para recuperar exclusivamente la última evidencia ficticia: `npm run qa:flow -- --restore`. No usarlo como servidor real ni importar sus datos a Google.
+
+Las correcciones de este recorrido requieren desplegar la web y actualizar **ambos** archivos de Apps Script; la revisión esperada es `2026-10-06-flow-2`. No reinicializar el sistema.
