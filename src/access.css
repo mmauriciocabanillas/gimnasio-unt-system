@@ -1,0 +1,224 @@
+/* Pantallas de acceso y estudiantes: azul continuo, sin fondo exterior. */
+:root[data-layout=public] {
+  background: #041d37;
+  color: #eef3f7;
+  color-scheme: dark;
+  --surface: #041d37;
+  --text: #eef3f7;
+  --muted: #b4c6d7;
+  --line: #2a4661;
+  --subtle: #0b2947;
+  --shadow: none;
+}
+:root[data-layout=public] body,
+:root[data-layout=public] #app {
+  background: #041d37;
+  min-height: 100svh;
+}
+:root[data-layout=public] .button.primary {
+  background: var(--gold);
+  color: var(--navy);
+}
+:root[data-layout=public] .button.primary:hover:not(:disabled) {
+  background: #ffda55;
+}
+:root[data-layout=public] .notice.setup {
+  background: #0b2947;
+  color: #f5d981;
+  border: 0;
+  box-shadow: none;
+}
+:root[data-layout=public] .notice:not(.setup):not(.success) {
+  background: #402431;
+  color: #ffdbd4;
+  border-color: #71434b;
+}
+:root[data-layout=public] .notice.success {
+  background: #143b3b;
+  color: #b3edcf;
+}
+:root[data-layout=public] input::placeholder { color: #b4c6d7; opacity: 1; }
+:root[data-layout=public] input:-webkit-autofill {
+  -webkit-text-fill-color: #eef3f7;
+  box-shadow: 0 0 0 1000px #0b2947 inset;
+}
+#app:is([data-screen=welcome],[data-screen=login]) main {
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  margin: 0 auto;
+  padding: 0;
+}
+#app .access-screen {
+  width: 100%;
+  min-height: 100svh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 44px 32px;
+}
+#app .access-screen.login-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  text-align: center;
+}
+#app .access-screen.login-intro > .eyebrow {
+  display: block;
+  margin: 0 0 18px;
+  font-size: .7rem;
+}
+#app .access-screen.login-intro img {
+  display: block;
+  width: 180px;
+  max-width: 65%;
+  margin: 0 0 30px;
+  border-radius: 16px;
+}
+#app .access-screen.login-intro h1 {
+  font-size: clamp(1.85rem, 8vw, 2.35rem);
+  line-height: 1.2;
+  margin: 0 0 20px;
+}
+#app .access-screen.login-intro p {
+  display: block;
+  font-size: .88rem;
+  line-height: 1.85;
+  margin: 0;
+}
+#app .welcome-enter {
+  width: 100%;
+  max-width: 280px;
+  min-height: 48px;
+  margin: 27px 0 0;
+  background: #fff;
+  color: var(--navy);
+  border: 0;
+  font-size: .82rem;
+  letter-spacing: .08em;
+}
+#app .welcome-enter:hover { background: #edf2f5; }
+#app .access-screen .welcome-dots {
+  display: flex;
+  margin-top: 28px;
+}
+#app .access-screen .welcome-bottom {
+  display: block;
+  margin-top: 28px;
+  font-size: .5rem;
+}
+#app .access-screen.login-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+#app .access-screen.login-card > :not(.login-symbol) {
+  width: 100%;
+  max-width: 416px;
+  align-self: center;
+}
+#app .access-screen.login-card .login-symbol {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 24px;
+}
+#app .access-screen.login-card .login-symbol .line-icon {
+  width: 43px;
+  height: 43px;
+}
+#app .access-screen.login-card h1 {
+  font-size: 1.65rem;
+  text-align: center;
+  line-height: 1.2;
+  margin: 0 0 15px;
+}
+#app .access-screen.login-card > .muted {
+  font-size: .8rem;
+  margin: 0 0 27px;
+}
+#app .access-screen.login-card .notice {
+  max-width: 416px;
+  width: 100%;
+  margin: 0 0 20px;
+}
+#app .access-screen.login-card form > label {
+  font-size: .85rem;
+  margin-bottom: 22px;
+}
+#app .access-screen.login-card input,
+#app .access-screen.login-card select {
+  min-height: 52px;
+  font-size: .95rem;
+  border-radius: 13px;
+}
+#app .access-screen.login-card .button {
+  min-height: 52px;
+  font-size: .9rem;
+  margin-top: 8px;
+}
+#app .access-screen.login-card .login-footnote {
+  margin: 25px 0 0;
+  font-size: .75rem;
+}
+#app[data-audience=student] main,
+#app[data-audience=student] .topbar,
+#app[data-audience=student] footer {
+  width: 100%;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#app[data-audience=student] footer { padding: 18px 25px; }
+#app[data-audience=student] .registration-layout,
+#app[data-audience=student] .attendance-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+#app[data-audience=student] .surface {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#app[data-audience=student] .registration-aside {
+  background: #0b2947;
+  box-shadow: none;
+}
+#app[data-audience=student] .eyebrow,
+#app[data-audience=student] .page-heading .eyebrow,
+#app[data-audience=student] .brand b { color: var(--gold); }
+#app[data-audience=student] .step-dot {
+  background: var(--gold);
+  color: var(--navy);
+}
+#app[data-audience=student] .icon-button { background: #0b2947; }
+#app[data-audience=student] .button.secondary { background: #0b2947; }
+#app[data-audience=student] .manual {
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+#app[data-screen=attendance] .header-label { display: none; }
+#app[data-screen=attendance] main { max-width: 480px; padding-top: 18px; }
+.attendance-checkin { padding: 10px 6px; }
+.checkin-heading { text-align: center; margin-bottom: 32px; }
+.checkin-heading .eyebrow { margin-bottom: 24px; }
+.checkin-symbol { width: 84px; height: 84px; margin: 0 auto 24px; border-radius: 50%; display: grid; place-items: center; background: #0b2947; color: var(--gold); }
+.checkin-symbol .line-icon { width: 38px; height: 38px; }
+.checkin-heading h1 { margin: 0 0 16px; font-size: clamp(1.9rem, 8vw, 2.5rem); line-height: 1.15; }
+.checkin-heading p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.7; }
+.checkin-reader { text-align: center; }
+.checkin-reader .button.primary { min-height: 58px; font-size: 1rem; }
+.checkin-reader output { display: block; margin: 20px 0; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
+.checkin-reader output.read { color: #b3edcf; }
+.checkin-reader .micro { margin: 14px 0 0; }
+.checkin-manual { margin-top: 30px; border-top: 1px solid var(--line); padding-top: 12px; }
+.checkin-manual summary { min-height: 48px; padding: 14px 0; font-size: .85rem; font-weight: 600; }
+.checkin-manual p { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+.checkin-manual input { background: #0b2947; font-size: 16px; }
+.checkin-note { margin-top: 25px; text-align: center; line-height: 1.7; }
+@media (max-width: 360px) {
+  #app .access-screen { padding: 32px 24px; }
+  #app .access-screen.login-intro img { width: 150px; margin-bottom: 24px; }
+  #app .access-screen.login-intro h1 { font-size: 1.8rem; }
+}
