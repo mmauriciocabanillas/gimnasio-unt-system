@@ -98,6 +98,12 @@ Navegador local aislado, sin Google: Resumen, Inscritos (120 filas ficticias), A
 
 Cámara/carnet físico Android/iPhone; persistencia real de registro/asistencia/cierres; dos clientes simultáneos al último cupo; archivo XLSX real y apertura en Excel; activadores reales y cierre mensual ante errores; límites/NAT con la red del gimnasio; tiempos repetidos de la nueva implementación. El XLSX de la simulación tiene servicio/binario ficticios: se validaron sus tablas y gráficos, no un archivo Excel real.
 
+## Entrega y comprobación posterior
+
+Cambios publicados en GitHub, rama main, commit ac64d2a. Vercel ya devuelve el cliente index-CtXMPNV0.js y la API nueva (configured=true, health=not_checked); PUBLIC_APP_URL ya coincide con https://gimnasiount.vercel.app.
+
+Una lectura pública posterior respondió 200 en 10.997 ms, periodo 2026-10, sin revision. Por tanto, Google todavía no devuelve la revisión 2026-10-06-performance-1. La lentitud de Google sigue observada; falta actualizar/publicar Apps Script y volver a medir. No se declara resuelto el rendimiento de producción.
+
 ## Fuentes técnicas
 
 [Buenas prácticas de Apps Script](https://developers.google.com/apps-script/guides/support/best-practices), [batchGet de Sheets](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGet), [batchUpdate](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate), [versiones Node en Vercel](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions), [allowBuilds de pnpm](https://github.com/pnpm/pnpm.io/blob/main/versioned_docs/version-10.x/settings.md), [cabeceras de Vercel](https://vercel.com/docs/headers/request-headers).
