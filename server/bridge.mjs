@@ -12,7 +12,7 @@ export function signedEnvelope(action, data, secret) {
   const signature = createHmac('sha256', secret).update(`${timestamp}.${nonce}.${payload}`).digest('hex');
   return { payload, timestamp, nonce, signature };
 }
-const readActions = new Set(['public.config', 'account.get', 'panel']);
+const readActions = new Set(['public.config', 'account.get', 'panel', 'automation.status']);
 export async function bridge(action, data = {}, env = process.env, { deadline = Date.now() + (action === 'export' || action === 'initialize' ? 55000 : 50000), fetchImpl = fetch } = {}) {
   if (!configured(env)) throw new HttpError('La conexión con Google aún no está configurada.', 503);
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(env.APPS_SCRIPT_URL)) throw new HttpError('La URL de Apps Script debe ser una implementación /exec.', 503);

@@ -1,0 +1,131 @@
+{
+  "at": "2026-10-06T20:57:58.321Z",
+  "warning": "QA AISLADO: concurrencia real entre workers, Google/Drive/Sheets/LockService simulados. No acredita concurrencia ni activadores reales de Google.",
+  "revision": "2026-10-06-flow-3",
+  "cases": [
+    {
+      "case": "24 candidatos al último cupo",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 369,
+      "statuses": {
+        "200": 1,
+        "409": 23
+      },
+      "accepted": 1,
+      "rejected": 23,
+      "finalStudents": 20,
+      "priorStudentsPreserved": true
+    },
+    {
+      "case": "24 asistencias: 20 alumnos y 4 repetidas",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 376,
+      "statuses": {
+        "200": 24
+      },
+      "persistedAttendance": 20,
+      "duplicates": 4,
+      "lostWrites": 0
+    },
+    {
+      "case": "24 reenvíos de una asistencia existente",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 369,
+      "statuses": {
+        "200": 24
+      },
+      "duplicateResponses": 24,
+      "extraRows": 0
+    },
+    {
+      "case": "8 trabajos mensuales simultáneos",
+      "workers": 8,
+      "maxRequestsInFlight": 8,
+      "lockWaits": 7,
+      "maxCriticalSections": 1,
+      "ms": 134,
+      "statuses": {
+        "200": 8
+      },
+      "archivedReports": 1,
+      "nextMonthBooks": 1,
+      "nextMonthStudents": 0,
+      "accountsUnchanged": true
+    },
+    {
+      "case": "24 registros simultáneos desde bloque vacío",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 372,
+      "statuses": {
+        "200": 20,
+        "409": 4
+      },
+      "accepted": 20,
+      "rejected": 4,
+      "finalStudents": 20,
+      "lostWrites": 0
+    },
+    {
+      "case": "24 registros del mismo código",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 376,
+      "statuses": {
+        "200": 1,
+        "409": 23
+      },
+      "accepted": 1,
+      "rejected": 23,
+      "finalStudents": 1
+    },
+    {
+      "case": "Cierre mensual junto a 8 formularios del mes antiguo",
+      "workers": 12,
+      "maxRequestsInFlight": 12,
+      "lockWaits": 11,
+      "maxCriticalSections": 1,
+      "ms": 191,
+      "statuses": {
+        "200": 4,
+        "409": 8
+      },
+      "staleFormsRejected": 8,
+      "nextMonthStudents": 0,
+      "archivedReports": 1
+    },
+    {
+      "case": "24 logins simultáneos desde la misma red",
+      "workers": 24,
+      "maxRequestsInFlight": 24,
+      "lockWaits": 23,
+      "maxCriticalSections": 1,
+      "ms": 370,
+      "statuses": {
+        "200": 12,
+        "429": 12
+      },
+      "accepted": 12,
+      "rateLimited": 12,
+      "passwordChanges": 0
+    }
+  ],
+  "octoberExample": {
+    "students": 20,
+    "attendance": 20
+  },
+  "passwordChanges": 0
+}

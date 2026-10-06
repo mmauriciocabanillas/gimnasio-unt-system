@@ -24,9 +24,11 @@ test('lectura reintenta HTML temporal con un nonce nuevo y conserva la firma pri
 });
 
 test('lecturas reintentan fallos de red solo una vez', async () => {
-  let calls = 0;
-  await assert.rejects(bridge('account.get', { user: 'Administrador' }, env, { fetchImpl: async () => { calls++; throw new Error('network'); } }), e => e instanceof HttpError && e.status === 504);
-  assert.equal(calls, 2);
+  for (const action of ['account.get', 'automation.status']) {
+    let calls = 0;
+    await assert.rejects(bridge(action, { user: 'Administrador' }, env, { fetchImpl: async () => { calls++; throw new Error('network'); } }), e => e instanceof HttpError && e.status === 504);
+    assert.equal(calls, 2);
+  }
 });
 
 test('respuestas de negocio y autorización no se reintentan', async () => {

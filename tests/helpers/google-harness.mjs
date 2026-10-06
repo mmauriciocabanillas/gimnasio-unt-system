@@ -6,11 +6,12 @@ import { hashPassword } from '../../server/auth.mjs';
 
 const source = ['Domain.js', 'Code.js'].map(name => readFileSync(new URL(`../../apps-script/${name}`, import.meta.url), 'utf8')).join('\n');
 const copy = value => JSON.parse(JSON.stringify(value));
-export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverride = source) {
+export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverride = source, options = {}) {
   let clock = new Date(initial).getTime(), held = false, serial = 0;
-  const sheets = new Map(), files = new Map(), folders = new Map(), props = new Map(), cache = new Map();
+  const sheets = new Map(), files = new Map(), folders = new Map(), props = new Map(), cache = new Map(), reservedIds = new Set();
   const stats = { batchReads: 0, metadataReads: 0, batchWrites: 0, writtenCells: 0, exports: 0 };
   const exports = [];
+  const triggers = [];
   const env = { APPS_SCRIPT_URL: 'https://script.google.com/macros/s/QA_ONLY/exec', APPS_SCRIPT_SECRET: 'QA_NOT_A_REAL_SECRET_'.padEnd(64, 'x'), SESSION_SECRET: 'QA_SESSION_ONLY_'.padEnd(64, 'y') };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
   class Range {
@@ -35,21 +36,63 @@ export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverr
     getSheets() { return this.tabs; } getSheetByName(name) { return this.tabs.find(s => s.name === name); }
     insertSheet(name) { const sheet = new Sheet(name); this.tabs.push(sheet); return sheet; } setSpreadsheetTimeZone() {}
   }
-  function folder(name) {
+  function folder(name, id = 'qa-folder-' + ++serial) {
     const child = new Map();
-    return { getName: () => name, getFoldersByName: name => { const value = child.get(name); return { hasNext: () => Boolean(value), next: () => value }; }, createFolder: name => { const value = folder(name); child.set(name, value); return value; }, createFile: blob => { const id = 'qa-export-' + ++serial; const f = { id, name: blob.getName(), getId: () => id, getUrl: () => `https://drive.google.com/file/d/${id}` }; files.set(id, f); return f; } };
+    return { getId: () => id, getName: () => name, getFoldersByName: name => { const value = child.get(name); return { hasNext: () => Boolean(value), next: () => value }; }, createFolder: name => { const value = folder(name); child.set(name, value); return value; }, createFile: blob => { const id = 'qa-export-' + ++serial; const f = { id, name: blob.getName(), getId: () => id, getUrl: () => `https://drive.google.com/file/d/${id}` }; files.set(id, f); return f; } };
   }
   const properties = { getProperty: key => props.get(key) ?? null, setProperty: (key, value) => { props.set(key, value); return properties; }, deleteProperty: key => props.delete(key) };
+  // Solo QA: instantánea serializable para hilos independientes que comparten
+  // un mutex real. No permite cargar secretos ni acceder a servicios remotos.
+  function dump() {
+    return copy({ serial, props: [...props], cache: [...cache], stats, exports, triggers, reservedIds: [...reservedIds],
+      files: [...files], sheets: [...sheets].map(([id, book]) => [id, { id, name: book.name, tabs: book.tabs }]) });
+  }
+  function restore(value) {
+    sheets.clear(); files.clear(); props.clear(); cache.clear(); folders.clear(); reservedIds.clear();
+    serial = value.serial; Object.assign(stats, value.stats); exports.splice(0, exports.length, ...value.exports);
+    triggers.splice(0, triggers.length, ...(value.triggers || []));
+    value.props.forEach(([k, v]) => props.set(k, v)); value.cache.forEach(([k, v]) => cache.set(k, v));
+    (value.reservedIds || []).forEach(id => reservedIds.add(id));
+    value.sheets.forEach(([id, raw]) => {
+      const book = Object.assign(Object.create(Book.prototype), { id, name: raw.name });
+      book.tabs = raw.tabs.map(rawSheet => {
+        const sheet = Object.assign(Object.create(Sheet.prototype), rawSheet);
+        sheet.charts = rawSheet.charts.map(c => ({ ...c, getOptions: () => ({ get: key => c.options[key] }) }));
+        return sheet;
+      });
+      sheets.set(id, book);
+    });
+    value.files.forEach(([id, raw]) => files.set(id, { ...raw, moveTo() { return this; },
+      setTrashed: flag => { files.get(id).trashed = flag; }, getId: () => id, getUrl: () => `https://drive.google.com/file/d/${id}` }));
+  }
   const context = vm.createContext({
     console, Date: Clock,
     PropertiesService: { getScriptProperties: () => properties },
     CacheService: { getScriptCache: () => ({ get: key => cache.get(key), put: (key, value) => cache.set(key, value) }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => { if (held) return false; held = true; return true; }, releaseLock: () => { held = false; } }) },
+    LockService: { getScriptLock: () => ({ tryLock: timeout => {
+      if (held) return false;
+      if (options.shared && !options.shared.acquire(timeout)) return false;
+      try { if (options.shared) restore(options.shared.read()); held = true; return true; }
+      catch (error) { if (options.shared) options.shared.release(); throw error; }
+    }, releaseLock: () => {
+      try { if (options.shared) options.shared.write(dump()); }
+      finally { held = false; if (options.shared) options.shared.release(); }
+    } }) },
     Utilities: { computeHmacSha256Signature: (message, key) => [...createHmac('sha256', key).update(message).digest()].map(x => x > 127 ? x - 256 : x), getUuid: () => randomBytes(16).toString('hex'), base64Encode: bytes => Buffer.from(bytes).toString('base64') },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: raw => ({ setMimeType: () => JSON.parse(raw) }) },
     SpreadsheetApp: { create: name => new Book(name), openById: id => { if (!sheets.has(id)) throw new Error('Libro QA inexistente'); return sheets.get(id); }, flush() {} },
-    DriveApp: { getFolderById: id => { if (!folders.has(id)) folders.set(id, folder('ARCHIVO 2026')); return folders.get(id); }, getFileById: id => { if (!files.has(id)) throw new Error('Archivo QA inexistente'); return files.get(id); } },
-    ScriptApp: { getProjectTriggers: () => [], newTrigger: () => { const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, create() {} }; return b; }, getOAuthToken: () => 'QA_ONLY' },
+    DriveApp: { getFolderById: id => { if (!folders.has(id)) folders.set(id, folder('ARCHIVO 2026', id)); return folders.get(id); }, getFileById: id => { if (!files.has(id)) throw new Error('Archivo QA inexistente'); return files.get(id); } },
+    Drive: { Files: {
+      generateIds: ({ count }) => ({ ids: Array.from({ length: count }, () => { const id = 'qa-reserved-' + ++serial; reservedIds.add(id); return id; }) }),
+      get: id => { if (!files.has(id)) { const error = new Error('QA Drive 404'); error.status = 404; throw error; } return copy(files.get(id)); },
+      create: (metadata, blob) => {
+        if (files.has(metadata.id)) { const error = new Error('QA Drive 409: ID ya usado'); error.status = 409; throw error; }
+        if (!reservedIds.has(metadata.id) || !metadata.parents?.length) throw new Error('QA Drive: falta ID reservado o carpeta.');
+        const file = { ...metadata, size: String(blob.getBytes().length), trashed: false, webViewLink: `https://drive.google.com/file/d/${metadata.id}/view` };
+        files.set(metadata.id, file); return copy(file);
+      }
+    } },
+    ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.handler, getEventType: () => t.event })), newTrigger: handler => { const t = { handler, event: 'CLOCK' }; const b = { timeBased: () => b, everyMinutes: n => { t.minutes = n; return b; }, everyHours: n => { t.hours = n; return b; }, create() { triggers.push(t); } }; return b; }, getOAuthToken: () => 'QA_ONLY' },
     UrlFetchApp: { fetch: url => {
       const id = url.match(/\/files\/([^/]+)\//)[1], book = sheets.get(id); stats.exports++;
       exports.push({ name: book.name, sheets: book.tabs.map(s => ({ name: s.name, values: copy(s.values), charts: copy(s.charts) })) });
@@ -89,6 +132,7 @@ export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverr
     if (!result.ok) { const e = new Error(result.error); e.status = result.status; throw e; }
     return result.data;
   }
-  invoke('initialize', { accounts: Object.fromEntries(Object.entries(passwords).map(([user, p]) => [user, hashPassword(p)])) });
-  return { context, env, props, passwords, stats, exports, files, sheets, request, invoke, setTime: value => { clock = new Date(value).getTime(); }, now: () => new Date(clock), operational: () => sheets.get(props.get('MONTH_' + props.get('CURRENT_PERIOD'))) };
+  if (!options.shared) invoke('initialize', { accounts: Object.fromEntries(Object.entries(passwords).map(([user, p]) => [user, hashPassword(p)])) });
+  else restore(options.shared.read());
+  return { context, env, props, passwords, stats, exports, files, sheets, triggers, dump, restore, request, invoke, setTime: value => { clock = new Date(value).getTime(); }, now: () => new Date(clock), operational: () => sheets.get(props.get('MONTH_' + props.get('CURRENT_PERIOD'))) };
 }

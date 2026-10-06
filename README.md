@@ -79,3 +79,5 @@ npm run qa:flow
 Abrir http://localhost:3182 y http://localhost:3182/__qa. La segunda página controla el reloj y la cámara virtual. Este servidor solo escucha en esta computadora, no carga `.env.local` y reemplaza Google por memoria; las contraseñas de prueba aparecen en el control QA. Para recuperar exclusivamente la última evidencia ficticia: `npm run qa:flow -- --restore`. No usarlo como servidor real ni importar sus datos a Google.
 
 Las correcciones de este recorrido requieren desplegar la web y actualizar **ambos** archivos de Apps Script; la revisión esperada es `2026-10-06-flow-2`. No reinicializar el sistema.
+
+Verificación posterior de [concurrencia y cierre mensual](docs/VERIFICACION-CONCURRENCIA-CIERRE-2026-10-06.md): workers independientes y comprobaciones remotas sin cambiar datos. La corrección adicional del archivo mensual está en **Code.js**, revisión `2026-10-06-flow-3`; publicar una nueva versión de Código.gs, sin reinicializar cuentas. Para reproducir las carreras aisladas: `npm run simulate:concurrency`.

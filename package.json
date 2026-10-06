@@ -10,6 +10,7 @@
     "build": "vite build",
     "test": "node --test tests/*.test.mjs",
     "simulate:month": "node scripts/simulate-month.mjs",
+    "simulate:concurrency": "node scripts/simulate-concurrency.mjs",
     "qa:flow": "node tests/flow-server.mjs",
     "check": "node scripts/check.mjs",
     "setup": "node --env-file=.env.local scripts/setup.mjs",

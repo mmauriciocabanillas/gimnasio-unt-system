@@ -4,7 +4,7 @@ var GYM_FOLDERS = {
   reports: '1Sb7_aVAIRwzgSx0IWK-LIok9tJPG5qqw'
 };
 var GYM_MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
-var GYM_REVISION = '2026-10-06-flow-2';
+var GYM_REVISION = '2026-10-06-flow-3';
 var GYM_TABLES = {
   students: { name: 'REGISTRADOS', headers: ['Código', 'Alumno', 'Facultad', 'Carrera', 'Ciclo', 'Día 1', 'Hora 1', 'Día 2', 'Hora 2', 'Día 3', 'Hora 3', 'Faltas', 'Estado', 'JSON_INTERNO'] },
   reservations: { name: 'HORARIOS', headers: ['Código', 'Día', 'Inicio', 'Fin', 'Turno', 'Vigente desde', 'Vigente hasta', 'JSON_INTERNO'] },
@@ -49,7 +49,7 @@ function doGet() { return gymJson_({ ok: false, status: 405, error: 'Este endpoi
 function doPost(e) {
   try {
     if (!e || !e.postData || e.postData.contents.length > 150000) GymDomain.fail('Solicitud inválida.');
-    var readonly = ['account.get', 'public.config', 'panel'];
+    var readonly = ['account.get', 'public.config', 'panel', 'automation.status'];
     var verified = gymLock_(function () {
       var request = gymVerify_(JSON.parse(e.postData.contents));
       gymRateLimit_(request);
@@ -249,10 +249,11 @@ function gymOperational_(selectedKeys) {
   return { sheet: ss, state: gymRead_(ss, selectedKeys) };
 }
 function gymDispatch_(action, data) {
-  if (!['initialize', 'account.get', 'account.change', 'public.config', 'register', 'attend', 'panel', 'closure', 'schedule', 'configure', 'export'].includes(action)) GymDomain.fail('Operación desconocida.', 404);
+  if (!['initialize', 'account.get', 'account.change', 'automation.status', 'public.config', 'register', 'attend', 'panel', 'closure', 'schedule', 'configure', 'export'].includes(action)) GymDomain.fail('Operación desconocida.', 404);
   var props = gymProperties_();
   if (action === 'initialize') return gymInitialize_(data);
   if (action === 'account.get') return gymAccount_(data.user);
+  if (action === 'automation.status') { gymActor_(data); return gymAutomationStatus_(); }
   if (action === 'account.change') {
     gymActor_(data);
     if (!/^scrypt\$[a-f0-9]{32}\$[a-f0-9]{128}$/.test(data.hash || '')) GymDomain.fail('Hash inválido.');
@@ -287,6 +288,40 @@ function gymReportFolder_(period) {
   // La carpeta entregada se llama ARCHIVO 2026; ese año no se anida de nuevo.
   var year = period.slice(0, 4), yearFolder = root.getName() === 'ARCHIVO ' + year ? root : gymSubfolder_(root, year);
   return gymSubfolder_(yearFolder, GYM_MONTHS[Number(period.slice(5)) - 1]);
+}
+function gymFinalFileResult_(file, id, period) {
+  if (file.id !== id || file.trashed || file.mimeType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || !Number.isFinite(Number(file.size)) || Number(file.size) <= 0 || !file.appProperties || file.appProperties.gymPeriod !== period || file.appProperties.gymKind !== 'MONTH_FINAL') {
+    GymDomain.fail('El archivo mensual reservado no es válido o fue alterado. Revisa Drive; el periodo se conserva.', 502);
+  }
+  return { fileId: id, filename: file.name, driveUrl: file.webViewLink || 'https://drive.google.com/file/d/' + id + '/view' };
+}
+function gymRecoverFinal_(period) {
+  var id = gymProperties_().getProperty('ARCHIVE_PENDING_ID_' + period), file;
+  if (!id) return null;
+  try { file = Drive.Files.get(id, { fields: 'id,name,mimeType,size,trashed,appProperties,webViewLink' }); }
+  catch (_) { return null; } // No declarar archivado si no se puede comprobar.
+  return gymFinalFileResult_(file, id, period);
+}
+function gymArchiveFinal_(period, blob) {
+  var props = gymProperties_(), key = 'ARCHIVE_PENDING_ID_' + period, id = props.getProperty(key);
+  if (!id) {
+    id = Drive.Files.generateIds({ count: 1, space: 'drive', type: 'files' }).ids[0];
+    // Guardar antes de crear: un timeout/reintento usará SIEMPRE el mismo ID.
+    props.setProperty(key, id);
+  }
+  var recovered = gymRecoverFinal_(period);
+  if (recovered) return recovered;
+  var file;
+  try {
+    file = Drive.Files.create({ id: id, name: blob.getName(), mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', parents: [gymReportFolder_(period).getId()], appProperties: { gymKind: 'MONTH_FINAL', gymPeriod: period } }, blob, { fields: 'id,name,mimeType,size,trashed,appProperties,webViewLink' });
+  } catch (error) {
+    // El upload pudo completarse aunque se perdiera su respuesta. Drive no
+    // permite crear dos archivos con el ID pre-generado, incluso ante un 409.
+    recovered = gymRecoverFinal_(period);
+    if (recovered) return recovered;
+    throw error;
+  }
+  return gymFinalFileResult_(file, id, period);
 }
 function gymExport_(state, shift, archive, finalReport) {
   if (!['TODO', 'MANANA', 'TARDE'].includes(shift)) GymDomain.fail('Turno inválido.');
@@ -323,14 +358,25 @@ function gymExport_(state, shift, archive, finalReport) {
     var response = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + temp.getId() + '/export?mimeType=application%2Fvnd.openxmlformats-officedocument.spreadsheetml.sheet', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
     if (response.getResponseCode() !== 200) GymDomain.fail('Google no pudo exportar el Excel. El periodo y sus datos se conservan.', 502);
     var blob = response.getBlob().setName(stem + '.xlsx'), file = null;
+    if (finalReport) return gymArchiveFinal_(state.period, blob);
     if (archive) file = gymReportFolder_(state.period).createFile(blob);
-    if (finalReport) return { fileId: file.getId(), driveUrl: file.getUrl(), filename: blob.getName() };
     if (blob.getBytes().length > 2800000) {
       if (file) return { driveUrl: file.getUrl(), filename: blob.getName(), large: true };
       GymDomain.fail('El Excel supera el tamaño de descarga de esta API. Usa «Guardar copia en Drive» y descárgalo desde allí.', 413);
     }
     return { filename: blob.getName(), base64: Utilities.base64Encode(blob.getBytes()), driveUrl: file ? file.getUrl() : null };
   } finally { DriveApp.getFileById(temp.getId()).setTrashed(true); }
+}
+function gymAutomationStatus_() {
+  var props = gymProperties_(), current = props.getProperty('CURRENT_PERIOD'), expected = GymDomain.lima(new Date()).period;
+  var required = ['procesarFaltas', 'procesarCambioMensual'];
+  var triggers = ScriptApp.getProjectTriggers().map(function (t) { return { handler: t.getHandlerFunction(), event: String(t.getEventType()) }; }).filter(function (t) { return required.includes(t.handler); });
+  var counts = required.map(function (handler) { return { handler: handler, clockTriggers: triggers.filter(function (t) { return t.handler === handler && t.event === 'CLOCK'; }).length }; });
+  return { revision: GYM_REVISION, currentPeriod: current, expectedPeriod: expected, monthPending: current !== expected, triggers: counts,
+    missingClockHandlers: counts.filter(function (t) { return t.clockTriggers === 0; }).map(function (t) { return t.handler; }),
+    duplicateClockHandlers: counts.filter(function (t) { return t.clockTriggers > 1; }).map(function (t) { return t.handler; }),
+    currentArchiveRecorded: Boolean(current && props.getProperty('ARCHIVED_' + current)), currentArchivePending: Boolean(current && props.getProperty('ARCHIVE_PENDING_ID_' + current)),
+    frequencyVerified: false, executionVerified: false };
 }
 function instalarActivadores() {
   // Idempotente: no borra activadores ajenos al sistema.
@@ -356,7 +402,7 @@ function procesarCambioMensual() {
     gymSave_(state, ss);
     var archived = props.getProperty('ARCHIVED_' + current);
     if (!archived) {
-      var report = gymExport_(state, 'TODO', true, true);
+      var report = gymRecoverFinal_(current) || gymExport_(state, 'TODO', true, true);
       props.setProperty('ARCHIVED_' + current, report.fileId);
     }
     var next = GymDomain.nextPeriod(current); gymCreateMonth_(next);

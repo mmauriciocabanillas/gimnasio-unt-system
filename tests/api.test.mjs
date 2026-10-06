@@ -23,6 +23,14 @@ test('sesión firmada: no acepta modificación ni vencimiento', () => {
   assert.match(sessionCookie(token), /HttpOnly; SameSite=Strict/);
 });
 test('panel requiere sesión', async () => { const r = await call('/api/panel'); assert.equal(r.statusCode, 401); });
+test('diagnóstico de activadores requiere sesión y usa exclusivamente identidad de cookie', async () => {
+  assert.equal((await call('/api/automation')).statusCode, 401);
+  for (const user of ['ProfesorGYM','Administrador']) {
+    const seen = [], cookie = `gym_session=${createSession(user, 1, env.SESSION_SECRET)}`;
+    const r = await call('/api/automation?actor=intruso&version=999', 'GET', undefined, async (action, data) => { seen.push({ action, data }); return {}; }, cookie);
+    assert.equal(r.statusCode, 200); assert.deepEqual(seen, [{ action: 'automation.status', data: { actor: user, version: 1 } }]);
+  }
+});
 test('ambos usuarios tienen acceso al mismo panel y acciones', async () => {
   for (const user of ['ProfesorGYM', 'Administrador']) {
     const session = `gym_session=${createSession(user, 1, env.SESSION_SECRET)}`;

@@ -70,6 +70,7 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
     const session = readSession(tokenFrom(req), env.SESSION_SECRET);
     if (!session) throw new HttpError('Inicia sesión para acceder al panel.', 401);
     const actor = { actor: session.user, version: session.version };
+    if (path === '/api/automation' && method === 'GET') return send(200, await invoke('automation.status', actor));
     if (path === '/api/panel' && method === 'GET') {
       const shift = parsed.searchParams.get('shift') || 'TODO';
       if (!['TODO', 'MANANA', 'TARDE'].includes(shift)) throw new HttpError('Turno inválido.');

@@ -1,0 +1,19 @@
+{
+  "warning": "QA aislado. Ninguna escritura en Google ni cambio de contraseñas reales.",
+  "at": "2026-10-06T20:57:54.662Z",
+  "baseline": "9971254",
+  "before": {
+    "revision": "2026-10-06-flow-2",
+    "finalCopies": 2,
+    "exports": 2,
+    "finalPeriod": "2026-11",
+    "accountsUnchanged": true
+  },
+  "after": {
+    "revision": "2026-10-06-flow-3",
+    "finalCopies": 1,
+    "exports": 1,
+    "finalPeriod": "2026-11",
+    "accountsUnchanged": true
+  }
+}
