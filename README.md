@@ -33,6 +33,10 @@ Abrir `http://localhost:3180`. Este servidor usa Google real: no contiene alumno
 `PUBLIC_APP_URL` debe ser `https://gimnasiount.vercel.app` para mantener los QR públicos también al trabajar localmente.
 No subir `.env.local`, claves ni contraseñas al repositorio.
 
+El puente firma un JSON con escapes Unicode en ASCII y declara UTF-8 en el transporte.
+Esto evita diferencias de decodificación con Apps Script sin quitar tildes, ñ ni otros caracteres de los datos.
+La corrección es compatible con el Apps Script actual; requiere desplegar la API web, no reiniciar los datos ni cambiar las claves.
+
 ## Inicio limpio después de borrar los archivos de Drive
 
 La limpieza de Drive es manual. Conservar las dos carpetas configuradas, el proyecto Apps Script, sus propiedades privadas y sus activadores.

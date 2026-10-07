@@ -26,6 +26,27 @@ function harness(period = '2026-10') {
 }
 function request(h, action, data) { return h.context.doPost({ postData: { contents: JSON.stringify(signedEnvelope(action, data, secret)) } }); }
 
+test('reproduce rechazo Unicode con decodificación distinta y la firma nueva conserva los datos', () => {
+  const h = harness(), data = { names: 'José María', surnames: 'Muñoz', career: 'Informática', reason: 'Revisión mañana 🏋️' };
+  h.context.Utilities.computeHmacSha256Signature = (message, key) =>
+    [...createHmac('sha256', key).update(message, 'latin1').digest()].map(x => x > 127 ? x - 256 : x);
+  h.context.gymDispatch_ = (_, received) => ({ received });
+  const old = signedEnvelope('public.config', data, secret);
+  old.payload = JSON.stringify({ action: 'public.config', data });
+  old.signature = createHmac('sha256', secret).update(`${old.timestamp}.${old.nonce}.${old.payload}`, 'utf8').digest('hex');
+  assert.equal(h.context.doPost({ postData: { contents: JSON.stringify(old) } }).status, 401);
+  const result = request(h, 'public.config', data);
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data.received)), data);
+});
+
+test('alterar texto Unicode después de firmarlo sigue siendo rechazado', () => {
+  const h = harness(); h.context.gymDispatch_ = () => ({ fine: true });
+  const envelope = signedEnvelope('public.config', { names: 'José' }, secret);
+  envelope.payload = envelope.payload.replace('Jos\\u00e9', 'Jose');
+  assert.equal(h.context.doPost({ postData: { contents: JSON.stringify(envelope) } }).status, 401);
+});
+
 test('Apps Script rechaza llamadas sin firma y siempre libera el lock', () => {
   const h = harness(); const result = h.context.doPost({ postData: { contents: '{}' } });
   assert.equal(result.ok, false); assert.equal(result.status, 401); assert.equal(h.locked(), false); assert.deepEqual(h.counts(), { acquisitions: 1, releases: 1 });

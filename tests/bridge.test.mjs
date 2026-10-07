@@ -1,9 +1,32 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bridge, HttpError, configured } from '../server/bridge.mjs';
+import { bridge, signedEnvelope, HttpError, configured } from '../server/bridge.mjs';
+import { createHmac } from 'node:crypto';
 
 const env = { APPS_SCRIPT_URL: 'https://script.google.com/macros/s/test/exec', APPS_SCRIPT_SECRET: 'a'.repeat(32), SESSION_SECRET: 'b'.repeat(32) };
 const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+
+test('firma transmite JSON ASCII y conserva exactamente todo Unicode al decodificar', () => {
+  const data = { names: 'María José', surnames: 'Muñoz Peña', faculty: 'Ingeniería', career: 'Informática',
+    note: '中文 العربية 🏋️‍♀️ e\u0301 \u2028 \u2029', 'clave con ñ': ['á', { escaped: '\\u00e1', quote: '"\\\n', loneSurrogate: '\ud800' }] };
+  const envelope = signedEnvelope('register', data, env.APPS_SCRIPT_SECRET);
+  assert.ok(/^[\x00-\x7f]*$/.test(envelope.payload));
+  assert.deepEqual(JSON.parse(envelope.payload), { action: 'register', data });
+  const message = `${envelope.timestamp}.${envelope.nonce}.${envelope.payload}`;
+  for (const encoding of ['utf8', 'latin1']) assert.equal(envelope.signature,
+    createHmac('sha256', env.APPS_SCRIPT_SECRET).update(message, encoding).digest('hex'));
+});
+
+test('tildes viajan escapadas también en el cuerpo HTTP y el charset queda explícito', async () => {
+  const data = { names: 'María', career: 'Informática', reason: 'Mañana: revisión' };
+  await bridge('register', data, env, { fetchImpl: async (_, options) => {
+    assert.equal(options.headers['Content-Type'], 'application/json; charset=utf-8');
+    assert.ok(/^[\x00-\x7f]*$/.test(options.body));
+    const envelope = JSON.parse(options.body);
+    assert.deepEqual(JSON.parse(envelope.payload).data, data);
+    return json({ ok: true, data: { message: 'Correcto' } });
+  } });
+});
 
 test('estado configurado exige URL /exec válida además de los secretos', () => {
   assert.equal(configured(env), true);

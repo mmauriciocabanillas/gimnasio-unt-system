@@ -7,7 +7,11 @@ export function configured(env = process.env) {
   return Boolean(/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(env.APPS_SCRIPT_URL || '') && env.APPS_SCRIPT_SECRET?.length >= 32 && env.SESSION_SECRET?.length >= 32);
 }
 export function signedEnvelope(action, data, secret) {
-  const payload = JSON.stringify({ action, data });
+  // Firmar un JSON ASCII evita diferencias de decodificación en Apps Script.
+  // JSON.parse restaura tildes, ñ, emojis y claves sin alterar los datos originales.
+  // No usar /u: cada unidad UTF-16 debe escaparse, incluidos pares de sustitución.
+  const payload = JSON.stringify({ action, data }).replace(/[\u007f-\uffff]/g,
+    character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
   const timestamp = Date.now(), nonce = randomBytes(16).toString('hex');
   const signature = createHmac('sha256', secret).update(`${timestamp}.${nonce}.${payload}`).digest('hex');
   return { payload, timestamp, nonce, signature };
@@ -23,7 +27,7 @@ export async function bridge(action, data = {}, env = process.env, { deadline = 
     let response, result, transportError;
     try {
       response = await fetchImpl(env.APPS_SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
         // Cada consulta repetida lleva una firma nueva; no reutiliza el nonce.
         body: JSON.stringify(signedEnvelope(action, data, env.APPS_SCRIPT_SECRET)),
         signal: AbortSignal.timeout(Math.max(1, Math.floor(Math.min(remaining, action === 'export' || action === 'initialize' ? 55000 : 30000)))), redirect: 'follow'
