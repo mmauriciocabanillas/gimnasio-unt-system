@@ -26,8 +26,17 @@ test('horario vigente y conteos no adelantan un cambio futuro entre turnos', () 
 test('America/Lima usa la fecha de Perú aunque UTC esté en el día siguiente', () => {
   assert.deepEqual(plain(G.lima('2026-10-06T02:20:00Z')), { date: '2026-10-05', time: '21:20', day: 1, period: '2026-10' });
 });
-test('la inscripción queda cerrada hasta confirmar la configuración', () => {
-  assert.throws(() => G.register(G.empty('2026-10'), form(), at('2026-10-01')), /no están habilitadas/);
+test('inscripciones abiertas por defecto, cierre manual persistente y aforo obligatorio', () => {
+  const state = G.empty('2026-10');
+  assert.equal(state.config.enabled, true);
+  G.register(state, form(), at('2026-10-01'));
+  G.configure(state, { days: [1, 2, 3, 4, 5], enabled: false }, 'Administrador', at('2026-10-01'));
+  assert.throws(() => G.register(state, form('0000000002'), at('2026-10-01')), /no están habilitadas/);
+  assert.equal(G.empty('2026-11', state.config).config.enabled, false);
+  G.configure(state, { days: [1, 2, 3, 4, 5], enabled: true }, 'Administrador', at('2026-10-01'));
+  for (let i = 2; i <= 20; i++) G.register(state, form(String(i).padStart(10, '0')), at('2026-10-01'));
+  assert.throws(() => G.register(state, form('0000000021'), at('2026-10-01')), /cupo|lleno|aforo/i);
+  assert.equal(state.students.length, 20);
 });
 test('inscripción válida mantiene ceros iniciales del código', () => {
   const s = initial(); signup(s); assert.equal(s.students[0].code, '0000000001'); assert.equal(s.students[0].absences, 0); assert.equal(s.reservations.length, 1);
@@ -39,7 +48,7 @@ test('registro exige CARNET', () => {
 test('carnet fijo de diez dígitos, incluso con una configuración antigua', () => {
   const state = G.empty('2026-10');
   assert.deepEqual(plain(state.config.days), [1, 2, 3, 4, 5]);
-  assert.equal(state.config.enabled, false);
+  assert.equal(state.config.enabled, true);
   assert.equal(state.config.codePattern, '^[0-9]{10}$');
   for (const code of ['ABCD1234', '0000-001', '0000.001', '123456789', '12345678901', '000000000001', '102270092A']) assert.throws(() => signup(initial(), code), /Formato inválido/);
   const example = initial(); signup(example, '1022700924'); assert.equal(example.students[0].code, '1022700924');

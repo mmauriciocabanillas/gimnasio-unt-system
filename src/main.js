@@ -15,7 +15,7 @@ const hours = [8, 9, 10, 11, 15, 16, 17, 18, 19];
 let status = null, publicData = null, panelData = null, user = null, loadError = '';
 let scannedCode = '', scanControls = null, scannerGeneration = 0, shift = 'TODO', tab = 'resumen';
 let registrationDraft = null, pending = false;
-let panelUpdatedAt = '', panelRequest = 0;
+let panelUpdatedAt = '', panelRequest = 0, panelLoading = false, panelError = '';
 const inflight = new Map();
 const currentRoute = () => normalizeRoute(location.pathname);
 const historyPages = { attendance: 0, absences: 0 };
@@ -52,7 +52,7 @@ async function api(path, body) {
     return data;
   })();
   if (get) inflight.set(path, request);
-  try { return await request; } finally { if (get) inflight.delete(path); }
+  try { return await request; } finally { if (get && inflight.get(path) === request) inflight.delete(path); }
 }
 function feedback(message, kind = 'error') {
   if (root.dataset.screen === 'welcome') { loadError = message; return; }
@@ -146,12 +146,12 @@ function settingsView() {
 const panelSections = { resumen: 'Resumen', inscritos: 'Inscritos', asistencia: 'Asistencia y faltas', cierres: 'Cierres', reportes: 'Reportes', qr: 'Códigos QR', configuracion: 'Configuración' };
 function panel() {
   if (!user) return login();
-  if (!panelData) { shell(`${pageTitle('PANEL DEL GIMNASIO', 'Panel del personal', 'Consulta los datos del mes para continuar.')}<div id="feedback" aria-live="polite"></div><div class="panel-controls"><button class="button primary" data-action="refresh">Reintentar</button><button class="button quiet" data-action="logout">Cerrar sesión</button></div>`, 'panel'); return; }
   const views = { resumen: panelSummary, inscritos: studentsView, asistencia: attendanceView, cierres: closuresView, reportes: reportsView, qr: qrView, configuracion: settingsView };
   views.resumen = () => panelSummary() + trendsView();
   if (!views[tab]) tab = 'resumen';
-  shell(`<div class="staff-layout"><aside class="staff-sidebar"><div class="sidebar-brand"><img src="/logo-mark-small.webp" alt=""><div>GIMNASIO UNT<small>Panel del personal</small></div></div><nav class="panel-tabs" aria-label="Secciones del panel">${Object.entries(panelSections).map(([key, label]) => `<button class="${tab === key ? 'selected' : ''}" data-action="tab" data-tab="${key}" ${tab === key ? 'aria-current="page"' : ''}>${icon(key)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><span>${escape(accountLabel(user))}</span><button class="sidebar-logout" data-action="logout">${icon('logout')} Cerrar sesión</button></div></aside><div class="staff-content"><div class="panel-heading"><div><span class="eyebrow">${escape(periodLabel(panelData.dashboard.period))}</span><h1>${panelSections[tab]}</h1><p>${shiftLabel(shift)}</p><small class="updated-label">Última consulta: ${panelUpdatedAt ? new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Lima' }).format(new Date(panelUpdatedAt)) : '—'}. Pulsa Actualizar para nuevos registros.</small></div><div class="panel-controls"><label class="sr-only" for="shift-filter">Turno del panel</label><select id="shift-filter"><option value="TODO" ${shift === 'TODO' ? 'selected' : ''}>Todo el día</option><option value="MANANA" ${shift === 'MANANA' ? 'selected' : ''}>Turno mañana</option><option value="TARDE" ${shift === 'TARDE' ? 'selected' : ''}>Turno tarde</option></select><button class="button quiet" data-action="refresh">Actualizar ↻</button></div></div><div id="feedback" aria-live="polite"></div>${views[tab]()}</div></div>`, 'panel');
-  if (tab === 'qr') drawQrs().catch(e => feedback(e.message));
+  const loadingView = `<section class="panel-load-state" aria-busy="${panelLoading}">${panelLoading ? `<p role="status">${spinner} Cargando datos del mes…</p>` : `<p class="notice error" role="alert">${escape(panelError || 'No se pudo consultar el mes.')}</p><button class="button primary" data-action="refresh">Reintentar</button>`}</section>`;
+  shell(`<div class="staff-layout"><aside class="staff-sidebar"><div class="sidebar-brand"><img src="/logo-mark-small.webp" alt=""><div>GIMNASIO UNT<small>Panel del personal</small></div></div><nav class="panel-tabs" aria-label="Secciones del panel">${Object.entries(panelSections).map(([key, label]) => `<button class="${tab === key ? 'selected' : ''}" data-action="tab" data-tab="${key}" ${tab === key ? 'aria-current="page"' : ''}>${icon(key)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><span>${escape(accountLabel(user))}</span><button class="sidebar-logout" data-action="logout">${icon('logout')} Cerrar sesión</button></div></aside><div class="staff-content"><div class="panel-heading"><div><span class="eyebrow">${panelData ? escape(periodLabel(panelData.dashboard.period)) : 'PANEL DEL GIMNASIO'}</span><h1>${panelSections[tab]}</h1><p>${shiftLabel(shift)}</p>${panelData ? `<small class="updated-label">Última consulta: ${panelUpdatedAt ? new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Lima' }).format(new Date(panelUpdatedAt)) : '—'}. Pulsa Actualizar para nuevos registros.</small>` : ''}</div><div class="panel-controls"><label class="sr-only" for="shift-filter">Turno del panel</label><select id="shift-filter"><option value="TODO" ${shift === 'TODO' ? 'selected' : ''}>Todo el día</option><option value="MANANA" ${shift === 'MANANA' ? 'selected' : ''}>Turno mañana</option><option value="TARDE" ${shift === 'TARDE' ? 'selected' : ''}>Turno tarde</option></select><button class="button quiet" data-action="refresh" ${panelLoading ? 'disabled' : ''}>${panelLoading ? 'Cargando…' : 'Actualizar ↻'}</button></div></div><div id="feedback" aria-live="polite"></div>${panelData ? views[tab]() : loadingView}</div></div>`, 'panel');
+  if (panelData && tab === 'qr') drawQrs().catch(e => feedback(e.message));
 }
 function qrView() {
   const base = publicAppOrigin(status?.publicUrl, location.origin);
@@ -240,9 +240,19 @@ function acceptPanel(data) {
 }
 async function refreshPanel() {
   const sequence = ++panelRequest;
-  const data = await api('panel?shift=TODO');
-  if (sequence !== panelRequest || !user) return;
-  acceptPanel(data); panel();
+  panelLoading = true; panelError = '';
+  if (!panelData) panel();
+  try {
+    const data = await api('panel?shift=TODO');
+    if (sequence !== panelRequest || !user) return;
+    acceptPanel(data);
+  } catch (error) {
+    if (sequence !== panelRequest || !user) return;
+    panelError = error.message;
+    throw error;
+  } finally {
+    if (sequence === panelRequest && user) { panelLoading = false; panel(); }
+  }
 }
 async function mutatePanel(action, input, message) {
   const result = await api(action, { ...input, includePanel: true, panelShift: shift });
@@ -344,12 +354,15 @@ root.addEventListener('submit', async event => {
       confirmation(registrationDraft);
     } else if (form.id === 'manual-attendance') { const result = await api('attend', { ...input, method: 'MANUAL' }); feedback(`${result.fullName}: ${result.message}`, 'success'); }
     else if (form.id === 'login-form') {
-      const result = await api('login', { user: input.user, password: input.password });
+      const result = await api('login', { user: input.user, password: input.password, shift: input.shift });
       user = result.user; shift = input.shift;
       // No reutilizar consultas iniciadas con la sesión anterior ni sus datos.
       ++panelRequest; inflight.clear(); panelData = null; tab = 'resumen';
       historyPages.attendance = 0; historyPages.absences = 0;
-      panel(); await refreshPanel();
+      panelLoading = false; panelError = '';
+      if (result.panel) { acceptPanel(result.panel); panel(); }
+      else if (result.panelError) { panelError = result.panelError.message; panel(); }
+      else await refreshPanel();
     }
     else if (form.id === 'closure-form') {
       if (!window.confirm(`${input.closed === 'true' ? 'Cerrar' : 'Reabrir'} ${shiftLabel(input.shift)} el ${input.date}. Se recalcularán las faltas. ¿Confirmar?`)) return;

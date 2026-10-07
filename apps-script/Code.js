@@ -4,7 +4,7 @@ var GYM_FOLDERS = {
   reports: '1Sb7_aVAIRwzgSx0IWK-LIok9tJPG5qqw'
 };
 var GYM_MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
-var GYM_REVISION = '2026-10-06-flow-3';
+var GYM_REVISION = '2026-10-07-access-4';
 var GYM_TABLES = {
   students: { name: 'REGISTRADOS', headers: ['Código', 'Alumno', 'Facultad', 'Carrera', 'Ciclo', 'Día 1', 'Hora 1', 'Día 2', 'Hora 2', 'Día 3', 'Hora 3', 'Faltas', 'Estado', 'JSON_INTERNO'] },
   reservations: { name: 'HORARIOS', headers: ['Código', 'Día', 'Inicio', 'Fin', 'Turno', 'Vigente desde', 'Vigente hasta', 'JSON_INTERNO'] },
@@ -252,7 +252,19 @@ function gymDispatch_(action, data) {
   if (!['initialize', 'account.get', 'account.change', 'automation.status', 'public.config', 'register', 'attend', 'panel', 'closure', 'schedule', 'configure', 'export'].includes(action)) GymDomain.fail('Operación desconocida.', 404);
   var props = gymProperties_();
   if (action === 'initialize') return gymInitialize_(data);
-  if (action === 'account.get') return gymAccount_(data.user);
+  if (action === 'account.get') {
+    var account = gymAccount_(data.user);
+    if (data.includeLoginPanel === true) {
+      try {
+        var loginMonth = gymOperational_(['students', 'reservations', 'attendance', 'absences', 'closures']);
+        account.panel = gymPanel_(loginMonth.state, loginMonth.sheet, new Date(), data.shift || 'TODO', data.user);
+      } catch (error) {
+        // Una lectura de Sheets fallida no invalida una contraseña correcta.
+        account.panelError = { status: error.status || 503, message: error.status ? error.message : 'No se pudo consultar el mes. Pulsa Reintentar.' };
+      }
+    }
+    return account;
+  }
   if (action === 'automation.status') { gymActor_(data); return gymAutomationStatus_(); }
   if (action === 'account.change') {
     gymActor_(data);

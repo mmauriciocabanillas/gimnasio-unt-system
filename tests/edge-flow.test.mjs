@@ -6,7 +6,7 @@ const actor = { actor: 'Administrador', version: 1 };
 const form = code => ({ code, names: 'Alumno ficticio', surnames: 'QA', faculty: 'QA', career: 'QA', cycle: 5, method: 'CARNET', slots: [{ day: 1, start: '08:00' }] });
 function opened() { const h = googleHarness('2026-10-05T07:00:00-05:00'); h.invoke('configure', { ...actor, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{10}$', enabled: true }); return h; }
 test('inscripciones cerradas y formularios inválidos no escriben ninguna tabla', () => {
-  const closed = googleHarness(); const before = closed.stats.batchWrites;
+  const closed = googleHarness(); closed.invoke('configure', { ...actor, days: [1, 2, 3, 4, 5], enabled: false }); const before = closed.stats.batchWrites;
   assert.equal(closed.request('register', form('0000000001')).status, 503);
   assert.equal(closed.stats.batchWrites, before);
   const h = opened();

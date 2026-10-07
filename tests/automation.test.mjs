@@ -5,7 +5,7 @@ const actor = { actor: 'Administrador', version: 1 };
 test('consulta privada de activadores no escribe ni toca Sheets y no promete ejecución/frecuencia', () => {
   const h = googleHarness(), before = h.dump();
   const report = h.invoke('automation.status', actor);
-  assert.equal(report.revision, '2026-10-06-flow-3'); assert.equal(report.currentPeriod, '2026-10');
+  assert.equal(report.revision, '2026-10-07-access-4'); assert.equal(report.currentPeriod, '2026-10');
   assert.equal(report.monthPending, false); assert.equal(report.missingClockHandlers.length, 0);
   assert.equal(report.duplicateClockHandlers.length, 0); assert.equal(report.executionVerified, false); assert.equal(report.frequencyVerified, false);
   assert.deepEqual(h.dump().props, before.props); assert.deepEqual(h.stats, before.stats);

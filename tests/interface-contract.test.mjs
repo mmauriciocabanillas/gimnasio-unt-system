@@ -74,6 +74,10 @@ test('vista de interfaz no carga .env, persiste snapshots ni importa la cámara 
 test('fallo de carga tras login ofrece reintento y no reutiliza consultas de otra sesión', () => {
   assert.ok(main.includes('data-action="refresh">Reintentar</button>'));
   assert.ok(main.includes('++panelRequest; inflight.clear(); panelData = null;'));
-  assert.ok(main.includes('panel(); await refreshPanel();'));
+  assert.ok(main.includes('if (result.panel) { acceptPanel(result.panel); panel(); }'));
+  assert.ok(main.includes('else await refreshPanel();'));
+  assert.ok(main.includes('panelLoading ? `<p role="status">'));
+  assert.ok(!main.includes("'Panel del personal', 'Consulta los datos del mes para continuar.'"));
+  assert.ok(main.includes('inflight.get(path) === request'));
   assert.ok(main.includes('initialPanelRequest !== panelRequest'));
 });

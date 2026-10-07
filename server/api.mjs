@@ -63,10 +63,14 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
       // Nombre de acceso nuevo; conservar ID persistente e historial anteriores.
       const loginUser = input.user === 'Profesor' ? 'ProfesorGYM' : input.user;
       if (!['ProfesorGYM', 'Administrador'].includes(loginUser) || typeof input.password !== 'string' || input.password.length > 128) throw new HttpError('Usuario o contraseña incorrectos.', 401);
-      const account = await invoke('account.get', { user: loginUser, _rate: rateKey });
+      const loginShift = input.shift || 'TODO';
+      if (!['TODO', 'MANANA', 'TARDE'].includes(loginShift)) throw new HttpError('Turno inválido.');
+      // El puente firmado puede preparar el panel en la misma ida a Google.
+      // No entregar ningún dato de ese panel hasta comprobar la contraseña.
+      const account = await invoke('account.get', { user: loginUser, _rate: rateKey, includeLoginPanel: true, shift: loginShift });
       if (!verifyPassword(input.password, account.hash)) throw new HttpError('Usuario o contraseña incorrectos.', 401);
       res.setHeader('Set-Cookie', sessionCookie(createSession(loginUser, account.version, env.SESSION_SECRET), secure));
-      return send(200, { user: loginUser });
+      return send(200, { user: loginUser, ...(account.panel ? { panel: account.panel } : {}), ...(account.panelError ? { panelError: account.panelError } : {}) });
     }
     if (path === '/api/logout' && method === 'POST') { res.setHeader('Set-Cookie', sessionCookie('', secure)); return send(200, { ok: true }); }
     const session = readSession(tokenFrom(req), env.SESSION_SECRET);
@@ -86,7 +90,11 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
       if (input.shift !== undefined && !['TODO', 'MANANA', 'TARDE'].includes(input.shift)) throw new HttpError('Turno inválido.');
       if (input.panelShift !== undefined && !['TODO', 'MANANA', 'TARDE'].includes(input.panelShift)) throw new HttpError('Turno inválido.');
       // Cada acción ya ejecuta gymActor_: misma revocación, una sola ida a Google.
-      return send(200, await invoke(actions[path], { ...input, ...actor }));
+      const data = { ...input, ...actor };
+      // Compatibilidad con Domain.gs anterior: el campo dejó de ser editable,
+      // pero las versiones publicadas antiguas todavía lo exigen al configurar.
+      if (path === '/api/configure') data.codePattern = '^[0-9]{10}$';
+      return send(200, await invoke(actions[path], data));
     }
     // Consultar versión persistente revoca sesiones al cambiar la contraseña.
     const account = await invoke('account.get', { user: session.user });

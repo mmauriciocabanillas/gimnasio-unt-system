@@ -21,7 +21,7 @@ var GymDomain = (function () {
   function nextPeriod(period) { var d = new Date(period + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); }
   function empty(period, config) {
     // Carnet confirmado: exactamente diez dígitos. Conserva ceros iniciales.
-    return { period: period, config: Object.assign({ days: [1, 2, 3, 4, 5], capacity: 20, maxAbsences: 3, enabled: false }, config || {}, { codePattern: '^[0-9]{10}$' }), students: [], reservations: [], attendance: [], absences: [], closures: [], audit: [] };
+    return { period: period, config: Object.assign({ days: [1, 2, 3, 4, 5], capacity: 20, maxAbsences: 3, enabled: true }, config || {}, { codePattern: '^[0-9]{10}$' }), students: [], reservations: [], attendance: [], absences: [], closures: [], audit: [] };
   }
   function code(value, state) {
     var result = text(value, 'el código', 40);

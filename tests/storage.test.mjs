@@ -8,7 +8,7 @@ test('consulta pública lee exclusivamente horarios en una petición por lote', 
   h.context.Sheets.Spreadsheets.Values.batchGet = (id, options) => { ranges = options.ranges; return original(id, options); };
   const config = h.invoke('public.config');
   assert.equal(ranges.length, 1); assert.equal(ranges[0], "'HORARIOS'!A1:H");
-  assert.equal(config.slots.length, 45); assert.equal(config.revision, '2026-10-06-flow-3');
+  assert.equal(config.slots.length, 45); assert.equal(config.revision, '2026-10-07-access-4');
 });
 
 test('gráficos incluyen 19–20 y ambos turnos, reparación no borra gráficos ajenos', () => {

@@ -21,6 +21,10 @@ export function flowSession(restored) {
     };
     await handleApi(req, res, { env: h.env, invoke: async (action, data) => {
       if (action === 'panel' && panelFault) { panelFault = false; const error = new Error('Fallo de consulta simulado para auditoría.'); error.status = 503; throw error; }
+      if (action === 'account.get' && data.includeLoginPanel && panelFault) {
+        panelFault = false;
+        return { ...h.invoke(action, { ...data, includeLoginPanel: false }), panelError: { status: 503, message: 'Fallo de consulta simulado para auditoría.' } };
+      }
       return h.invoke(action, data);
     } });
   }

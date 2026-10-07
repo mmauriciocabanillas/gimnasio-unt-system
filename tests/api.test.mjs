@@ -62,6 +62,39 @@ test('login valida del lado servidor y genera cookie, sin devolver hashes', asyn
 });
 test('login rechaza contraseña incorrecta', async () => { const r = await call('/api/login', 'POST', { user: 'ProfesorGYM', password: 'Wrong' }); assert.equal(r.statusCode, 401); });
 
+test('login entrega el panel en una sola llamada y nunca con contraseña incorrecta', async () => {
+  const panel = { dashboard: { period: '2026-10' }, students: [{ code: '0000000001' }] };
+  for (const password of ['Password1', 'Wrong']) {
+    const seen = [];
+    const r = await call('/api/login', 'POST', { user: 'Profesor', password, shift: 'TARDE', actor: 'intruso' }, async (action, data) => { seen.push({ action, data }); return { hash, version: 1, panel }; });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].action, 'account.get');
+    assert.equal(seen[0].data.includeLoginPanel, true);
+    assert.equal(seen[0].data.shift, 'TARDE');
+    assert.equal(seen[0].data.user, 'ProfesorGYM');
+    assert.equal(seen[0].data.actor, undefined);
+    assert.equal(r.body.hash, undefined);
+    if (password === 'Password1') assert.deepEqual(r.body.panel, panel);
+    else { assert.equal(r.statusCode, 401); assert.equal(r.body.panel, undefined); assert.equal(r.headers['Set-Cookie'], undefined); }
+  }
+});
+
+test('login conserva sesión y permite reintento si falla Sheets; rechaza turno inválido', async () => {
+  const panelError = { status: 503, message: 'No se pudo leer el mes.' };
+  const r = await call('/api/login', 'POST', { user: 'Administrador', password: 'Password1' }, async () => ({ hash, version: 1, panelError }));
+  assert.equal(r.statusCode, 200); assert.deepEqual(r.body.panelError, panelError);
+  assert.match(r.headers['Set-Cookie'], /gym_session=/);
+  assert.equal((await call('/api/login', 'POST', { user: 'Profesor', password: 'Password1', shift: 'OTRO' })).statusCode, 400);
+});
+
+test('configuración envía formato fijo compatible con Apps Script anterior, sin confiar en el cliente', async () => {
+  const cookie = `gym_session=${createSession('ProfesorGYM', 1, env.SESSION_SECRET)}`;
+  let sent;
+  const r = await call('/api/configure', 'POST', { days: [1, 2, 3, 4, 5], enabled: true, codePattern: '.*', actor: 'intruso', version: 99 }, async (action, data) => { sent = data; if (data.codePattern !== '^[0-9]{10}$') throw new HttpError('Revisa el formato del código.'); return { enabled: data.enabled }; }, cookie);
+  assert.equal(r.statusCode, 200); assert.equal(r.body.enabled, true);
+  assert.equal(sent.codePattern, '^[0-9]{10}$'); assert.equal(sent.actor, 'ProfesorGYM'); assert.equal(sent.version, 1);
+});
+
 test('Profesor ingresa con nombre nuevo conservando identidad, permisos e historial', async () => {
   let sent;
   const r = await call('/api/login', 'POST', { user: 'Profesor', password: 'Password1' }, async (action, data) => { sent = { action, data }; return { hash, version: 2 }; });

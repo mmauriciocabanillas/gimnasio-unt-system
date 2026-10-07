@@ -1,6 +1,8 @@
 /* Acciones accesibles en móvil y antigüedad explícita, sin cambiar el diseño. */
 .updated-label { display:block; color:var(--muted); font-size:.8125rem; max-width:420px; margin-top:10px; line-height:1.6; }
 dialog .dialog-feedback { margin-bottom:16px; }
+.panel-load-state { padding:32px 0; }
+.panel-load-state [role="status"] { display:flex; align-items:center; gap:12px; color:var(--muted); }
 .history-pager { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; font-size:.8125rem; }
 .history-pager span { margin-right:auto; color:var(--muted); }
 @media(max-width:760px) {

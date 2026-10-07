@@ -7,7 +7,7 @@
  */
 function verificarCierreMensualAislado() {
   function check(value, message) { if (!value) throw new Error('PRUEBA: ' + message); }
-  check(GYM_REVISION === '2026-10-06-flow-3', 'Código.gs debe ser flow-3.');
+  check(['2026-10-06-flow-3', '2026-10-07-access-4'].includes(GYM_REVISION), 'Código.gs debe ser flow-3 o access-4.');
   var realProps = PropertiesService.getScriptProperties();
   var productionPeriod = realProps.getProperty('CURRENT_PERIOD');
   check(/^\d{4}-\d{2}$/.test(productionPeriod || ''), 'Falta el periodo de producción.');
