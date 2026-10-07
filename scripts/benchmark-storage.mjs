@@ -12,12 +12,12 @@ const baseline = ['Domain.js', 'Code.js'].map(name => {
 const inputs = JSON.parse(readFileSync('docs/simulacion/octubre-2026-datos-ficticios.json', 'utf8')).registeredInputs;
 function measure(source) {
   const h = googleHarness('2026-10-01T07:00:00-05:00', source);
-  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{8}$', enabled: true });
+  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{10}$', enabled: true });
   for (const input of inputs) h.invoke('register', input);
   h.setTime('2026-10-05T08:05:00-05:00');
   h.context.procesarFaltas(); // Estado recalculado como en la operación con activador.
   const before = { ...h.stats };
-  h.invoke('attend', { code: '00000001', method: 'CARNET' });
+  h.invoke('attend', { code: '0000000001', method: 'CARNET' });
   const state = h.context.gymRead_(h.operational());
   return { cellsSent: h.stats.writtenCells - before.writtenCells, atomicWrites: h.stats.batchWrites - before.batchWrites, attendance: state.attendance.length, students: state.students.length, data: JSON.stringify({ students: state.students, attendance: state.attendance, absences: state.absences }) };
 }

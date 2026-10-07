@@ -60,11 +60,13 @@ export async function handleApi(req, res, { invoke = bridge, env = process.env }
     const secure = Boolean(env.VERCEL || req.headers['x-forwarded-proto'] === 'https');
     if (path === '/api/login' && method === 'POST') {
       const input = await requestBody(req);
-      if (!['ProfesorGYM', 'Administrador'].includes(input.user) || typeof input.password !== 'string' || input.password.length > 128) throw new HttpError('Usuario o contraseña incorrectos.', 401);
-      const account = await invoke('account.get', { user: input.user, _rate: rateKey });
+      // Nombre de acceso nuevo; conservar ID persistente e historial anteriores.
+      const loginUser = input.user === 'Profesor' ? 'ProfesorGYM' : input.user;
+      if (!['ProfesorGYM', 'Administrador'].includes(loginUser) || typeof input.password !== 'string' || input.password.length > 128) throw new HttpError('Usuario o contraseña incorrectos.', 401);
+      const account = await invoke('account.get', { user: loginUser, _rate: rateKey });
       if (!verifyPassword(input.password, account.hash)) throw new HttpError('Usuario o contraseña incorrectos.', 401);
-      res.setHeader('Set-Cookie', sessionCookie(createSession(input.user, account.version, env.SESSION_SECRET), secure));
-      return send(200, { user: input.user });
+      res.setHeader('Set-Cookie', sessionCookie(createSession(loginUser, account.version, env.SESSION_SECRET), secure));
+      return send(200, { user: loginUser });
     }
     if (path === '/api/logout' && method === 'POST') { res.setHeader('Set-Cookie', sessionCookie('', secure)); return send(200, { ok: true }); }
     const session = readSession(tokenFrom(req), env.SESSION_SECRET);

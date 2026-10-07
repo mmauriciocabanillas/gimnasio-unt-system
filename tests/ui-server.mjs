@@ -9,7 +9,7 @@ vm.runInContext(await readFile('apps-script/Domain.js', 'utf8'), context);
 const G = context.GymDomain;
 let state = G.empty('2026-10'), now = new Date('2026-10-05T14:30:00-05:00'); state.config.enabled = true;
 try { state = JSON.parse(await readFile('docs/simulacion/octubre-2026-datos-ficticios.json', 'utf8')).october; now = new Date('2026-10-30T20:00:00-05:00'); }
-catch { G.register(state, { code: '00000001', names: 'Alumno', surnames: 'De Prueba', faculty: 'Facultad de prueba', career: 'Carrera de prueba', cycle: 3, method: 'CARNET', slots: [{ day: 1, start: '08:00' }, { day: 3, start: '16:00' }] }, new Date('2026-10-01T07:00:00-05:00')); }
+catch { G.register(state, { code: '0000000001', names: 'Alumno', surnames: 'De Prueba', faculty: 'Facultad de prueba', career: 'Carrera de prueba', cycle: 3, method: 'CARNET', slots: [{ day: 1, start: '08:00' }, { day: 3, start: '16:00' }] }, new Date('2026-10-01T07:00:00-05:00')); }
 G.recalculate(state, now);
 const vite = await viteServer({ server: { middlewareMode: true, hmr: { port: 24679 } }, appType: 'spa' });
 const server = httpServer(async (req, res) => {

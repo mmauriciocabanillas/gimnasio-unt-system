@@ -12,6 +12,7 @@
     "simulate:month": "node scripts/simulate-month.mjs",
     "simulate:concurrency": "node scripts/simulate-concurrency.mjs",
     "qa:flow": "node tests/flow-server.mjs",
+    "preview:ui": "node scripts/preview-interface.mjs",
     "check": "node scripts/check.mjs",
     "setup": "node --env-file=.env.local scripts/setup.mjs",
     "config:init": "node scripts/config-init.mjs"

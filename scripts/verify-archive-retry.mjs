@@ -8,8 +8,8 @@ const baseline = '9971254';
 const oldSource = ['Domain.js','Code.js'].map(name => execFileSync('git', ['show', `${baseline}:apps-script/${name}`], { encoding: 'utf8' })).join('\n');
 function reproduce(source) {
   const h = googleHarness('2026-10-05T07:00:00-05:00', source);
-  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1,2,3,4,5], enabled: true, codePattern: '^[0-9]{8}$' });
-  h.invoke('register', qaForm('00000100'));
+  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1,2,3,4,5], enabled: true, codePattern: '^[0-9]{10}$' });
+  h.invoke('register', qaForm('0000000100'));
   const accounts = ['ACCOUNT_ProfesorGYM','ACCOUNT_Administrador'].map(k => h.props.get(k));
   const properties = h.context.PropertiesService.getScriptProperties(), set = properties.setProperty; let failOnce = true;
   properties.setProperty = (key, value) => { if (key === 'ARCHIVED_2026-10' && failOnce) { failOnce = false; throw new Error('QA marcador mensual perdido'); } return set(key, value); };

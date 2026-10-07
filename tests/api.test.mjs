@@ -61,14 +61,30 @@ test('login valida del lado servidor y genera cookie, sin devolver hashes', asyn
   assert.equal(r.statusCode, 200); assert.equal(r.body.user, 'ProfesorGYM'); assert.match(r.headers['Set-Cookie'], /gym_session=/); assert.equal(r.body.hash, undefined);
 });
 test('login rechaza contraseña incorrecta', async () => { const r = await call('/api/login', 'POST', { user: 'ProfesorGYM', password: 'Wrong' }); assert.equal(r.statusCode, 401); });
+
+test('Profesor ingresa con nombre nuevo conservando identidad, permisos e historial', async () => {
+  let sent;
+  const r = await call('/api/login', 'POST', { user: 'Profesor', password: 'Password1' }, async (action, data) => { sent = { action, data }; return { hash, version: 2 }; });
+  assert.equal(r.statusCode, 200);
+  assert.equal(sent.action, 'account.get'); assert.equal(sent.data.user, 'ProfesorGYM');
+  const token = r.headers['Set-Cookie'].split(';')[0].slice('gym_session='.length);
+  const session = readSession(token, env.SESSION_SECRET);
+  assert.equal(session.user, 'ProfesorGYM'); assert.equal(session.version, 2);
+  assert.equal(r.body.hash, undefined);
+});
+
+test('Profesor con contraseña incorrecta no recibe una sesión', async () => {
+  const r = await call('/api/login', 'POST', { user: 'Profesor', password: 'Wrong' });
+  assert.equal(r.statusCode, 401); assert.equal(r.headers['Set-Cookie'], undefined);
+});
 test('no admite POST desde otra web', async () => { const r = await call('/api/login', 'POST', {}, undefined, undefined, { origin: 'https://otra-web.example' }); assert.equal(r.statusCode, 403); });
 test('registro público no puede reenviar actor ni timestamp del cliente', async () => {
   let sent;
-  const r = await call('/api/register', 'POST', { code: '00000001', method: 'CARNET', actor: 'Administrador', timestamp: '2020-01-01', names: 'José', slots: [] }, async (action, data) => { sent = data; return { ok: true }; });
+  const r = await call('/api/register', 'POST', { code: '0000000001', method: 'CARNET', actor: 'Administrador', timestamp: '2020-01-01', names: 'José', slots: [] }, async (action, data) => { sent = data; return { ok: true }; });
   assert.equal(r.statusCode, 200); assert.equal(sent.actor, undefined); assert.equal(sent.timestamp, undefined);
 });
 test('firma HMAC verifica exactamente payload, timestamp y nonce', () => {
-  const envelope = signedEnvelope('attend', { code: '00000001' }, env.APPS_SCRIPT_SECRET);
+  const envelope = signedEnvelope('attend', { code: '0000000001' }, env.APPS_SCRIPT_SECRET);
   assert.equal(envelope.signature, createHmac('sha256', env.APPS_SCRIPT_SECRET).update(`${envelope.timestamp}.${envelope.nonce}.${envelope.payload}`).digest('hex'));
 });
 test('rewrite de Vercel conserva ruta y filtros', async () => {
@@ -85,6 +101,6 @@ test('estado diferencia configuración local de salud remota', async () => {
 
 test('identidad del limitador es del servidor, no del cuerpo público', async () => {
   let sent;
-  await call('/api/attend', 'POST', { code: '00000001', method: 'CARNET', _rate: 'intruso' }, async (_, data) => { sent = data; return {}; });
+  await call('/api/attend', 'POST', { code: '0000000001', method: 'CARNET', _rate: 'intruso' }, async (_, data) => { sent = data; return {}; });
   assert.match(sent._rate, /^[a-f0-9]{64}$/); assert.notEqual(sent._rate, 'intruso');
 });

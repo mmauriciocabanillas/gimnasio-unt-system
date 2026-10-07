@@ -1,10 +1,10 @@
 /* Acciones accesibles en móvil y antigüedad explícita, sin cambiar el diseño. */
-.updated-label { display:block; color:var(--muted); font-size:.65rem; max-width:340px; margin-top:8px; }
+.updated-label { display:block; color:var(--muted); font-size:.8125rem; max-width:420px; margin-top:10px; line-height:1.6; }
 dialog .dialog-feedback { margin-bottom:16px; }
-.history-pager { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; font-size:.68rem; }
+.history-pager { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; font-size:.8125rem; }
 .history-pager span { margin-right:auto; color:var(--muted); }
 @media(max-width:760px) {
-  .panel-controls { display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
-  .panel-controls .button { display:inline-flex; min-height:38px; font-size:.67rem; padding:8px; }
-  .updated-label { max-width:220px; font-size:.6rem; }
+  .panel-controls { display:flex; flex-direction:row; gap:12px; }
+  .panel-controls .button { display:inline-flex; min-height:48px; font-size:.875rem; padding:10px; }
+  .updated-label { max-width:none; font-size:.8125rem; }
 }

@@ -27,12 +27,12 @@ test('guardado sin cambios no envía metadata ni batchUpdate a Google', () => {
 });
 
 test('segunda inscripción no vuelve a enviar filas del primer alumno', () => {
-  const h = googleHarness(); h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{8}$', enabled: true });
+  const h = googleHarness(); h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{10}$', enabled: true });
   const form = code => ({ code, names: 'Ficticio', surnames: 'Prueba', faculty: 'QA', career: 'QA', cycle: 1, method: 'CARNET', slots: [{ day: 1, start: '08:00' }] });
-  h.invoke('register', form('00000001'));
+  h.invoke('register', form('0000000001'));
   const original = h.context.Sheets.Spreadsheets.batchUpdate; let requests;
   h.context.Sheets.Spreadsheets.batchUpdate = (body, id) => { requests = body.requests; return original(body, id); };
-  h.invoke('register', form('00000002'));
+  h.invoke('register', form('0000000002'));
   const id = h.operational().getSheetByName('REGISTRADOS').getSheetId();
   const change = requests.find(r => r.updateCells?.range.sheetId === id).updateCells;
   assert.equal(change.range.startRowIndex, 2); assert.equal(change.rows.length, 1);
@@ -59,7 +59,7 @@ test('versión revocada rechaza toda escritura privada antes de leer o guardar S
 
 test('borrar filas obsoletas no conserva restos de un cálculo anterior', () => {
   const h = googleHarness(), sheet = h.operational().getSheetByName('FALTAS'), headers = h.context.GYM_TABLES.absences.headers;
-  h.context.gymLock_(() => h.context.gymAtomicWrite_(h.operational(), [{ name: 'FALTAS', headers, rows: [['2026-10-01', '00000001', 'QA', '08:00', 'MANANA', 'CONTABILIZADA', '{}']] }]));
+  h.context.gymLock_(() => h.context.gymAtomicWrite_(h.operational(), [{ name: 'FALTAS', headers, rows: [['2026-10-01', '0000000001', 'QA', '08:00', 'MANANA', 'CONTABILIZADA', '{}']] }]));
   const previous = JSON.parse(JSON.stringify(sheet.values));
   h.context.gymLock_(() => h.context.gymAtomicWrite_(h.operational(), [{ name: 'FALTAS', headers, rows: [], previousRows: previous }]));
   assert.equal(sheet.values.length, 1);

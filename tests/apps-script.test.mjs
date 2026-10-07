@@ -50,17 +50,17 @@ test('operaciones de reserva toman el lock antes de leer y guardar; dos candidat
   const h = harness(), G = h.context.GymDomain;
   let state = G.empty('2026-10'); state.config.enabled = true;
   const input = code => ({ code, names: 'Nombre', surnames: 'Apellido', faculty: 'Facultad', career: 'Carrera', cycle: 2, method: 'CARNET', slots: [{ day: 1, start: '08:00' }] });
-  for (let i = 0; i < 19; i++) G.register(state, input(String(i).padStart(8, '0')), new Date('2026-10-01T12:00:00Z'));
+  for (let i = 0; i < 19; i++) G.register(state, input(String(i).padStart(10, '0')), new Date('2026-10-01T12:00:00Z'));
   h.context.gymOperational_ = () => { assert.equal(h.locked(), true); return { state: JSON.parse(JSON.stringify(state)), sheet: {} }; };
   h.context.gymSave_ = next => { assert.equal(h.locked(), true); state = JSON.parse(JSON.stringify(next)); };
-  const first = request(h, 'register', input('00000100')), second = request(h, 'register', input('00000101'));
+  const first = request(h, 'register', input('0000000100')), second = request(h, 'register', input('0000000101'));
   assert.equal(first.ok, true); assert.equal(second.status, 409); assert.equal(state.students.length, 20); assert.equal(h.locked(), false);
 });
 test('guardado operativo usa una única escritura atómica de todas las tablas', () => {
   const h = harness(); let called = 0;
   h.context.Sheets = { Spreadsheets: { get: () => ({ sheets: [1, 2].map(id => ({ properties: { sheetId: id, gridProperties: { rowCount: 100, columnCount: 20 } } })) }), batchUpdate: (body, id) => { called++; assert.equal(id, 'sheet-id'); assert.equal(body.requests.length, 2); for (const r of body.requests) assert.ok(r.updateCells); } } };
   const sheet = id => ({ getSheetId: () => id, getLastRow: () => 1, getMaxRows: () => 100, getMaxColumns: () => 20 });
-  h.context.gymAtomicWrite_({ getId: () => 'sheet-id' }, [{ sheet: sheet(1), headers: ['Código', 'Dato'], rows: [['00000001', '=NO_ES_FORMULA']] }, { sheet: sheet(2), headers: ['Inicio'], rows: [['08:00']] }]);
+  h.context.gymAtomicWrite_({ getId: () => 'sheet-id' }, [{ sheet: sheet(1), headers: ['Código', 'Dato'], rows: [['0000000001', '=NO_ES_FORMULA']] }, { sheet: sheet(2), headers: ['Inicio'], rows: [['08:00']] }]);
   assert.equal(called, 1);
 });
 test('fallo del Excel mensual conserva el periodo, el operativo y las cuentas', () => {

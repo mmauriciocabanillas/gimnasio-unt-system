@@ -17,16 +17,16 @@ export async function monthlyScenario() {
   for (const user of Object.keys(h.passwords)) await call('login', { user, password: h.passwords[user] }, user);
   await call('login', { user: 'ProfesorGYM', password: 'QA_INCORRECTA' }, undefined, 401);
   await call('panel', undefined, undefined, 401);
-  await call('configure', { days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{8}$', enabled: true, includePanel: true }, 'Administrador');
+  await call('configure', { days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{10}$', enabled: true, includePanel: true }, 'Administrador');
   const inputs = [];
   for (let i = 1; i <= 120; i++) {
     let slots = i <= 20 ? [{ day: 1, start: '08:00' }] : [{ day: (i - 21) % 5 + 1, start: ['09:00', '10:00', '15:00', '16:00', '19:00'][Math.floor((i - 21) / 5) % 5] }, { day: (i - 19) % 5 + 1, start: ['11:00', '15:00', '16:00', '17:00', '18:00'][Math.floor((i - 21) / 5) % 5] }];
     if (i === 3) slots = [{ day: 1, start: '08:00' }, { day: 3, start: '09:00' }, { day: 5, start: '10:00' }];
-    const input = { code: String(i).padStart(8, '0'), names: `Alumno ficticio ${String(i).padStart(3, '0')}`, surnames: 'Simulación UNT', faculty: ['Ingeniería (QA)', 'Educación (QA)', 'Ciencias (QA)'][i % 3], career: 'Carrera ficticia', cycle: i % 10 + 1, method: 'CARNET', slots };
+    const input = { code: String(i).padStart(10, '0'), names: `Alumno ficticio ${String(i).padStart(3, '0')}`, surnames: 'Simulación UNT', faculty: ['Ingeniería (QA)', 'Educación (QA)', 'Ciencias (QA)'][i % 3], career: 'Carrera ficticia', cycle: i % 10 + 1, method: 'CARNET', slots };
     inputs.push(input); await call('register', input, undefined, 200, 'qa-student-' + i);
   }
   await call('register', inputs[0], undefined, 409);
-  await call('register', { ...inputs[0], code: '99999999' }, undefined, 409);
+  await call('register', { ...inputs[0], code: '0099999999' }, undefined, 409);
   await call('register', { ...inputs[0], code: 'ABC' }, undefined, 400);
   await call('closure', { date: '2026-10-08', shift: 'TODO', closed: true, reason: 'Cierre ficticio de prueba', includePanel: true }, 'ProfesorGYM');
   await call('closure', { date: '2026-10-12', shift: 'MANANA', closed: true, reason: 'Mantenimiento ficticio', includePanel: true }, 'Administrador');
@@ -38,9 +38,9 @@ export async function monthlyScenario() {
     for (const block of h.context.GymDomain.BLOCKS) {
       if (date === '2026-10-05' && block.start === '08:00') {
         clock(date);
-        const changed = await call('schedule', { code: '00000002', effectiveDate: '2026-10-07', slots: [{ day: 3, start: '19:00' }], includePanel: true }, 'Administrador');
-        assert.equal(changed.panel.students.find(s => s.code === '00000002').slots[0].start, '08:00');
-        assert.equal(changed.panel.students.find(s => s.code === '00000002').futureSlots[0].start, '19:00');
+        const changed = await call('schedule', { code: '0000000002', effectiveDate: '2026-10-07', slots: [{ day: 3, start: '19:00' }], includePanel: true }, 'Administrador');
+        assert.equal(changed.panel.students.find(s => s.code === '0000000002').slots[0].start, '08:00');
+        assert.equal(changed.panel.students.find(s => s.code === '0000000002').futureSlots[0].start, '19:00');
       }
       clock(date, block.start);
       const state = h.context.gymRead_(h.operational());
@@ -54,18 +54,18 @@ export async function monthlyScenario() {
       }
       clock(date, block.end); h.context.procesarFaltas();
       if (date === '2026-10-07' && block.start === '09:00') {
-        let state = h.context.gymRead_(h.operational()); assert.equal(state.students.find(s => s.code === '00000003').status, 'BLOQUEADO');
+        let state = h.context.gymRead_(h.operational()); assert.equal(state.students.find(s => s.code === '0000000003').status, 'BLOQUEADO');
         await call('closure', { date, shift: 'MANANA', closed: true, reason: 'Corrección ficticia retroactiva', includePanel: true }, 'Administrador');
-        state = h.context.gymRead_(h.operational()); assert.equal(state.students.find(s => s.code === '00000003').status, 'ACTIVO');
+        state = h.context.gymRead_(h.operational()); assert.equal(state.students.find(s => s.code === '0000000003').status, 'ACTIVO');
         await call('closure', { date, shift: 'MANANA', closed: false, reason: 'Reapertura ficticia de control' }, 'ProfesorGYM');
-        assert.equal(h.context.gymRead_(h.operational()).students.find(s => s.code === '00000003').status, 'BLOQUEADO'); reactivationVerified = true;
+        assert.equal(h.context.gymRead_(h.operational()).students.find(s => s.code === '0000000003').status, 'BLOQUEADO'); reactivationVerified = true;
       }
     }
   }
   clock('2026-10-30', '20:00');
-  await call('attend', { code: '00000001', method: 'CARNET' }, undefined, 400);
-  await call('attend', { code: '00000001', method: 'MANUAL', fullName: 'Nombre que no coincide' }, undefined, 400);
-  await call('attend', { code: '99999998', method: 'CARNET' }, undefined, 404);
+  await call('attend', { code: '0000000001', method: 'CARNET' }, undefined, 400);
+  await call('attend', { code: '0000000001', method: 'MANUAL', fullName: 'Nombre que no coincide' }, undefined, 400);
+  await call('attend', { code: '0099999998', method: 'CARNET' }, undefined, 404);
   const panel = await call('panel?shift=TODO', undefined, 'Administrador');
   assert.equal(panel.students.length, 120); assert.equal(panel.attendance.length, accepted);
   assert.ok(panel.dashboard.slots.every(s => s.occupied <= 20));

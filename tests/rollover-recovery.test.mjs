@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { qaOpened, qaForm } from './helpers/concurrency-scenario.mjs';
 
 const accountSnapshot = h => ['ACCOUNT_ProfesorGYM', 'ACCOUNT_Administrador'].map(k => h.props.get(k));
-function fixture() { const h = qaOpened(); h.invoke('register', qaForm('00000100')); return h; }
+function fixture() { const h = qaOpened(); h.invoke('register', qaForm('0000000100')); return h; }
 function assertFinished(h, accounts, expectedExports = 1) {
   assert.equal(h.props.get('CURRENT_PERIOD'), '2026-11'); assert.ok(h.props.get('ARCHIVED_2026-10'));
   const state = h.context.gymRead_(h.operational());

@@ -5,7 +5,7 @@ import { parallelGoogle } from './parallel-google.mjs';
 export const qaForm = (code, start = '08:00') => ({ period: '2026-10', code, names: 'Alumno ficticio', surnames: 'Concurrencia QA', faculty: 'QA', career: 'QA', cycle: 4, method: 'CARNET', slots: [{ day: 1, start }] });
 export function qaOpened() {
   const h = googleHarness('2026-10-05T07:00:00-05:00');
-  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], enabled: true, codePattern: '^[0-9]{8}$' });
+  h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], enabled: true, codePattern: '^[0-9]{10}$' });
   return h;
 }
 function apply(h, run) {
@@ -26,15 +26,15 @@ function evidence(name, run, extra = {}) {
 export async function concurrencyScenario() {
   const events = [];
   let h = qaOpened();
-  for (let i = 1; i <= 19; i++) h.invoke('register', qaForm(String(i).padStart(8, '0')));
+  for (let i = 1; i <= 19; i++) h.invoke('register', qaForm(String(i).padStart(10, '0')));
   const accounts = ['ACCOUNT_ProfesorGYM', 'ACCOUNT_Administrador'].map(k => h.props.get(k));
-  const contenders = Array.from({ length: 24 }, (_, i) => ({ action: 'register', data: qaForm(String(100 + i).padStart(8, '0')) }));
+  const contenders = Array.from({ length: 24 }, (_, i) => ({ action: 'register', data: qaForm(String(100 + i).padStart(10, '0')) }));
   let run = await parallelGoogle(h.dump(), contenders, '2026-10-05T07:00:00-05:00');
   let state = apply(h, run);
   assert.equal(run.results.filter(r => r.status === 200).length, 1);
   assert.equal(run.results.filter(r => r.status === 409).length, 23);
   assert.equal(state.students.length, 20); assert.equal(state.reservations.length, 20);
-  for (let i = 1; i <= 19; i++) assert.ok(state.students.some(s => s.code === String(i).padStart(8, '0')));
+  for (let i = 1; i <= 19; i++) assert.ok(state.students.some(s => s.code === String(i).padStart(10, '0')));
   const winner = run.results.find(r => r.status === 200).client;
   assert.ok(state.students.some(s => s.code === contenders[winner].data.code));
   events.push(evidence('24 candidatos al último cupo', run, { accepted: 1, rejected: 23, finalStudents: 20, priorStudentsPreserved: true }));
@@ -71,23 +71,23 @@ export async function concurrencyScenario() {
   events.push(evidence('8 trabajos mensuales simultáneos', run, { archivedReports: 1, nextMonthBooks: 1, nextMonthStudents: 0, accountsUnchanged: true }));
 
   h = qaOpened();
-  run = await parallelGoogle(h.dump(), Array.from({ length: 24 }, (_, i) => ({ action: 'register', data: qaForm(String(200 + i).padStart(8, '0')) })), '2026-10-05T07:00:00-05:00');
+  run = await parallelGoogle(h.dump(), Array.from({ length: 24 }, (_, i) => ({ action: 'register', data: qaForm(String(200 + i).padStart(10, '0')) })), '2026-10-05T07:00:00-05:00');
   state = apply(h, run);
   assert.equal(state.students.length, 20); assert.equal(run.results.filter(r => r.status === 200).length, 20);
   assert.equal(run.results.filter(r => r.status === 409).length, 4);
-  assert.deepEqual(new Set(state.students.map(s => s.code)), new Set(run.results.filter(r => r.status === 200).map(r => String(200 + r.client).padStart(8, '0'))));
+  assert.deepEqual(new Set(state.students.map(s => s.code)), new Set(run.results.filter(r => r.status === 200).map(r => String(200 + r.client).padStart(10, '0'))));
   events.push(evidence('24 registros simultáneos desde bloque vacío', run, { accepted: 20, rejected: 4, finalStudents: 20, lostWrites: 0 }));
 
   h = qaOpened();
-  run = await parallelGoogle(h.dump(), Array.from({ length: 24 }, () => ({ action: 'register', data: qaForm('00000999') })), '2026-10-05T07:00:00-05:00');
+  run = await parallelGoogle(h.dump(), Array.from({ length: 24 }, () => ({ action: 'register', data: qaForm('0000000999') })), '2026-10-05T07:00:00-05:00');
   state = apply(h, run);
   assert.equal(run.results.filter(r => r.status === 200).length, 1); assert.equal(run.results.filter(r => r.status === 409).length, 23);
   assert.equal(state.students.length, 1); assert.equal(state.reservations.length, 1);
   events.push(evidence('24 registros del mismo código', run, { accepted: 1, rejected: 23, finalStudents: 1 }));
 
-  h = qaOpened(); h.invoke('register', qaForm('00000100'));
+  h = qaOpened(); h.invoke('register', qaForm('0000000100'));
   run = await parallelGoogle(h.dump(), [ ...Array.from({ length: 4 }, () => ({ task: 'rollover' })),
-    ...Array.from({ length: 8 }, (_, i) => ({ action: 'register', data: qaForm(String(500 + i).padStart(8, '0')) })) ], '2026-11-01T07:00:00-05:00');
+    ...Array.from({ length: 8 }, (_, i) => ({ action: 'register', data: qaForm(String(500 + i).padStart(10, '0')) })) ], '2026-11-01T07:00:00-05:00');
   state = apply(h, run);
   assert.equal(run.results.filter(r => r.client >= 4 && [409, 503].includes(r.status)).length, 8);
   assert.equal(state.students.length, 0); assert.equal(h.stats.exports, 1);

@@ -20,14 +20,13 @@ var GymDomain = (function () {
   function instant(date, time) { return new Date(date + 'T' + time + ':00-05:00').getTime(); }
   function nextPeriod(period) { var d = new Date(period + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); }
   function empty(period, config) {
-    // Solo digitos confirmado por el personal; longitud exacta del carnet pendiente.
-    return { period: period, config: config || { days: [1, 2, 3, 4, 5], capacity: 20, maxAbsences: 3, enabled: false, codePattern: '^[0-9]{1,40}$' }, students: [], reservations: [], attendance: [], absences: [], closures: [], audit: [] };
+    // Carnet confirmado: exactamente diez dígitos. Conserva ceros iniciales.
+    return { period: period, config: Object.assign({ days: [1, 2, 3, 4, 5], capacity: 20, maxAbsences: 3, enabled: false }, config || {}, { codePattern: '^[0-9]{10}$' }), students: [], reservations: [], attendance: [], absences: [], closures: [], audit: [] };
   }
   function code(value, state) {
     var result = text(value, 'el código', 40);
-    var pattern;
-    try { pattern = new RegExp(state.config.codePattern); } catch (_) { fail('El formato del código no está configurado correctamente.', 503); }
-    if (!pattern.test(result)) fail('El código leído no coincide con el formato configurado.');
+    // No depende de configuraciones antiguas ni de patrones enviados por el cliente.
+    if (!/^[0-9]{10}$/.test(result)) fail('Formato inválido: el código debe contener exactamente 10 dígitos numéricos.');
     return result;
   }
   function checkSlots(slots, state) {
@@ -148,12 +147,7 @@ var GymDomain = (function () {
     var days = Array.from(new Set((input.days || []).map(Number))).sort();
     if (!days.length || days.some(function (d) { return !Number.isInteger(d) || d < 0 || d > 6; })) fail('Selecciona días válidos.');
     if (state.students.length && state.config.days.some(function (d) { return !days.includes(d); })) fail('Con inscritos, usa Cierres para suspender un día. No elimines días ya reservados.');
-    var pattern = text(input.codePattern, 'el formato del código', 160);
-    // Limitar a formatos simples evita regex con repeticiones anidadas.
-    if (!/^\^\[[A-Za-z0-9\\\-]+\]\{\d+(,\d+)?\}\$$/.test(pattern)) fail('Usa un formato simple como ^[0-9]{10}$ o ^[A-Za-z0-9-]{4,30}$.');
-    try { new RegExp(pattern); } catch (_) { fail('Formato de código inválido.'); }
-    if (state.students.some(function (s) { return !new RegExp(pattern).test(s.code); })) fail('El formato debe admitir los códigos ya inscritos.');
-    state.config = Object.assign({}, state.config, { days: days, codePattern: pattern, enabled: Boolean(input.enabled), capacity: 20, maxAbsences: 3 });
+    state.config = Object.assign({}, state.config, { days: days, codePattern: '^[0-9]{10}$', enabled: Boolean(input.enabled), capacity: 20, maxAbsences: 3 });
     state.audit.push({ action: 'CONFIGURACION', actor: actor, timestamp: new Date(now).toISOString(), detail: JSON.stringify(state.config) });
     return state.config;
   }
