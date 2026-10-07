@@ -1,6 +1,5 @@
 /* Compara tamaños de escritura local, no mide tiempos de Google. */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { googleHarness } from '../tests/helpers/google-harness.mjs';
 
@@ -9,7 +8,13 @@ const baseline = ['Domain.js', 'Code.js'].map(name => {
   if (r.status) throw new Error('No se encontró la revisión de referencia adeff29.');
   return r.stdout;
 }).join('\n');
-const inputs = JSON.parse(readFileSync('docs/simulacion/octubre-2026-datos-ficticios.json', 'utf8')).registeredInputs;
+// Comparación en memoria sin depender de archivos de ejecuciones anteriores.
+const inputs = Array.from({ length: 120 }, (_, index) => ({
+  code: String(index + 1).padStart(10, '0'), names: 'Alumno ficticio', surnames: 'Comparación local',
+  faculty: 'Ingeniería', career: 'Carrera ficticia', cycle: 1, method: 'CARNET',
+  slots: [{ day: index < 20 ? 1 : (index - 20) % 5 + 1,
+    start: index < 20 ? '08:00' : ['09:00', '10:00', '15:00', '16:00', '19:00'][Math.floor((index - 20) / 20)] }]
+}));
 function measure(source) {
   const h = googleHarness('2026-10-01T07:00:00-05:00', source);
   h.invoke('configure', { actor: 'Administrador', version: 1, days: [1, 2, 3, 4, 5], codePattern: '^[0-9]{10}$', enabled: true });

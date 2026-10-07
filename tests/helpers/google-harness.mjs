@@ -31,7 +31,7 @@ export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverr
     newChart() { const chart = { ranges: [], options: {}, getOptions: () => ({ get: key => chart.options[key] }) }; const builder = { asColumnChart: () => builder, addRange: r => { chart.ranges.push([r.row, r.col, r.rows, r.cols]); return builder; }, setPosition: () => builder, setOption: (k, v) => { chart.options[k] = v; return builder; }, build: () => chart }; return builder; }
   }
   class Book {
-    constructor(name) { this.name = name; this.id = 'qa-sheet-' + ++serial; this.tabs = [new Sheet('Hoja 1')]; sheets.set(this.id, this); files.set(this.id, { id: this.id, name, trashed: false, moveTo() { return this; }, setTrashed: flag => { files.get(this.id).trashed = flag; } }); }
+    constructor(name) { this.name = name; this.id = 'qa-sheet-' + ++serial; this.tabs = [new Sheet('Hoja 1')]; sheets.set(this.id, this); files.set(this.id, { id: this.id, name, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [], trashed: false, moveTo(folder) { this.parents = [folder.getId()]; return this; }, setTrashed: flag => { files.get(this.id).trashed = flag; } }); }
     getId() { return this.id; } getUrl() { return `https://docs.google.com/spreadsheets/d/${this.id}/edit`; }
     getSheets() { return this.tabs; } getSheetByName(name) { return this.tabs.find(s => s.name === name); }
     insertSheet(name) { const sheet = new Sheet(name); this.tabs.push(sheet); return sheet; } setSpreadsheetTimeZone() {}
@@ -40,7 +40,7 @@ export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverr
     const child = new Map();
     return { getId: () => id, getName: () => name, getFoldersByName: name => { const value = child.get(name); return { hasNext: () => Boolean(value), next: () => value }; }, createFolder: name => { const value = folder(name); child.set(name, value); return value; }, createFile: blob => { const id = 'qa-export-' + ++serial; const f = { id, name: blob.getName(), getId: () => id, getUrl: () => `https://drive.google.com/file/d/${id}` }; files.set(id, f); return f; } };
   }
-  const properties = { getProperty: key => props.get(key) ?? null, setProperty: (key, value) => { props.set(key, value); return properties; }, deleteProperty: key => props.delete(key) };
+  const properties = { getProperty: key => props.get(key) ?? null, getProperties: () => Object.fromEntries(props), setProperty: (key, value) => { props.set(key, value); return properties; }, deleteProperty: key => props.delete(key) };
   // Solo QA: instantánea serializable para hilos independientes que comparten
   // un mutex real. No permite cargar secretos ni acceder a servicios remotos.
   function dump() {
@@ -62,7 +62,7 @@ export function googleHarness(initial = '2026-10-01T07:00:00-05:00', sourceOverr
       });
       sheets.set(id, book);
     });
-    value.files.forEach(([id, raw]) => files.set(id, { ...raw, moveTo() { return this; },
+    value.files.forEach(([id, raw]) => files.set(id, { ...raw, moveTo(folder) { this.parents = [folder.getId()]; return this; },
       setTrashed: flag => { files.get(id).trashed = flag; }, getId: () => id, getUrl: () => `https://drive.google.com/file/d/${id}` }));
   }
   const context = vm.createContext({

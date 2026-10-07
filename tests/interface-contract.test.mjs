@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
 const theme = await readFile(new URL('../src/template.css', import.meta.url), 'utf8');
 const access = await readFile(new URL('../src/access.css', import.meta.url), 'utf8');
-const preview = await readFile(new URL('../scripts/preview-interface.mjs', import.meta.url), 'utf8');
+const dev = await readFile(new URL('../scripts/dev.mjs', import.meta.url), 'utf8');
+const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
 test('registro admite cambio de tema sin fecha decorativa ni perder el formulario', () => {
   assert.ok(!main.includes('period-chip'));
@@ -63,12 +64,11 @@ test('registro, asistencia, revisión y alternativas no cambian de flujo', () =>
   assert.ok(access.includes('min-height: 52px'));
   assert.ok(!main.includes('welcome-dots'));
 });
-test('vista de interfaz no carga .env, persiste snapshots ni importa la cámara de producción', () => {
-  assert.ok(preview.includes('flowSession()'));
-  assert.ok(preview.includes('../tests/qa-scanner.mjs'));
-  assert.ok(!preview.includes('dotenv'));
-  assert.ok(!preview.includes('writeFile'));
-  assert.ok(!preview.includes('process.env'));
+test('servidor normal usa API real sin vista demo, alumnos ficticios ni cámara simulada', () => {
+  assert.ok(dev.includes("from '../server/api.mjs'"));
+  assert.ok(pkg.scripts.dev.includes('scripts/dev.mjs'));
+  assert.ok(!Object.hasOwn(pkg.scripts, 'preview:ui'));
+  for (const marker of ['flowSession', 'googleHarness', 'qa-scanner', 'qa.api', 'invoke(\'register\'']) assert.ok(!dev.includes(marker));
 });
 
 test('fallo de carga tras login ofrece reintento y no reutiliza consultas de otra sesión', () => {

@@ -10,7 +10,7 @@ for (const folder of ['server', 'scripts', 'api', 'src']) {
     if (result.status !== 0) { console.error(result.stderr); failed = true; }
   }
 }
-for (const file of ['Domain.js', 'Code.js']) {
+for (const file of (await readdir('apps-script')).filter(name => name.endsWith('.js'))) {
   try { new vm.Script(await readFile(`apps-script/${file}`, 'utf8'), { filename: file }); } catch (error) { console.error(error); failed = true; }
 }
 for (const file of ['vercel.json', 'apps-script/appsscript.json', 'package.json']) JSON.parse(await readFile(file, 'utf8'));
